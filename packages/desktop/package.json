@@ -1,13 +1,13 @@
 {
-  "name": "@opencode-ai/desktop",
+  "name": "@primekit/desktop",
   "private": true,
   "version": "1.18.10",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://primekit-job.ru",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "PrimeKit",
+    "email": "support@primekit-job.ru"
   },
   "scripts": {
     "typecheck": "tsgo -b",

@@ -6,6 +6,7 @@ import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
+import { getPrimeKitProviderConfig } from "./primekit-provider"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -19,6 +20,7 @@ export type SidecarListener = { stop: () => Promise<void> }
 const SIDECAR_SERVICE_NAME = "opencode server"
 const SIDECAR_START_STALL_TIMEOUT = 60_000
 const SIDECAR_STOP_TIMEOUT = 6_000
+const PRIMEKIT_API_URL = "https://primekit-job.ru/v1"
 
 type SpawnLocalServerOptions = {
   userDataPath: string
@@ -49,6 +51,9 @@ export function preferAppEnv(userDataPath: string) {
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
+    OPENCODE_CONFIG_CONTENT:
+      process.env.OPENCODE_CONFIG_CONTENT ??
+      getPrimeKitProviderConfig(process.env.PRIMEKIT_API_URL ?? PRIMEKIT_API_URL),
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
   })
   return shellEnv
