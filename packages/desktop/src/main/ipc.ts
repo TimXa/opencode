@@ -13,6 +13,7 @@ import { getStore, removeStoreFileIfEmpty } from "./store"
 import { getPinchZoomEnabled, getWindowID, setPinchZoomEnabled, setTitlebar, updateTitlebar } from "./windows"
 import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
+import { primeKitAccount } from "./primekit-account"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -46,6 +47,13 @@ type Deps = {
 export function registerIpcHandlers(deps: Deps) {
   const updaterSubscriptions = createUpdaterSubscriptions()
   app.once("will-quit", updaterSubscriptions.clear)
+
+  ipcMain.handle("primekit-auth-state", () => primeKitAccount.state())
+  ipcMain.handle("primekit-auth-request-code", (_event, email: string) => primeKitAccount.requestEmailCode(email))
+  ipcMain.handle("primekit-auth-verify-code", (_event, email: string, code: string) =>
+    primeKitAccount.verifyEmailCode(email, code),
+  )
+  ipcMain.handle("primekit-auth-logout", () => primeKitAccount.logout())
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())

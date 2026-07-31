@@ -332,6 +332,82 @@ function LoadingSplash() {
   )
 }
 
+function PrimeKitLogin(props: { onSignedIn: () => void }) {
+  const [email, setEmail] = createSignal("")
+  const [code, setCode] = createSignal("")
+  const [step, setStep] = createSignal<"email" | "code">("email")
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal("")
+
+  const submit = async (event: SubmitEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    try {
+      if (step() === "email") {
+        await window.api.primekit.requestEmailCode(email().trim())
+        setStep("code")
+      } else {
+        await window.api.primekit.verifyEmailCode(email().trim(), code().trim())
+        props.onSignedIn()
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось войти")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main class="h-dvh w-screen flex items-center justify-center bg-background-base px-6">
+      <form onSubmit={submit} class="w-full max-w-[380px] rounded-2xl border border-border-weak-base bg-background-stronger p-7 shadow-lg">
+        <Splash class="w-12 h-14 mb-5" />
+        <h1 class="text-2xl font-medium text-text-strong mb-2">Вход в Кит</h1>
+        <p class="text-sm text-text-weak mb-6">
+          Ваши чаты на сайте, Mac и iPhone будут доступны в одном аккаунте.
+        </p>
+        <label class="block text-sm text-text-base mb-2" for="primekit-email">Email</label>
+        <input
+          id="primekit-email"
+          type="email"
+          autocomplete="email"
+          required
+          disabled={step() === "code" || busy()}
+          value={email()}
+          onInput={(event) => setEmail(event.currentTarget.value)}
+          class="w-full h-11 rounded-lg border border-border-base bg-background-base px-3 text-text-strong outline-none focus:border-border-strong"
+        />
+        <Show when={step() === "code"}>
+          <label class="block text-sm text-text-base mb-2 mt-4" for="primekit-code">Код из письма</label>
+          <input
+            id="primekit-code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            required
+            autofocus
+            value={code()}
+            onInput={(event) => setCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
+            class="w-full h-11 rounded-lg border border-border-base bg-background-base px-3 text-text-strong tracking-[0.3em] outline-none focus:border-border-strong"
+          />
+        </Show>
+        <Show when={error()}>{(message) => <p class="mt-4 text-sm text-red-500">{message()}</p>}</Show>
+        <button
+          type="submit"
+          disabled={busy()}
+          class="w-full h-11 mt-6 rounded-lg bg-text-strong text-background-base font-medium disabled:opacity-50"
+        >
+          {busy() ? "Подождите…" : step() === "email" ? "Получить код" : "Войти"}
+        </button>
+        <Show when={step() === "code"}>
+          <button type="button" class="w-full mt-3 text-sm text-text-weak" onClick={() => setStep("email")}>
+            Изменить email
+          </button>
+        </Show>
+      </form>
+    </main>
+  )
+}
+
 function DesktopRoot(props: { windowState: DesktopWindowState }) {
   const platform = createPlatform(props.windowState)
   const loadLocale = async () => {
@@ -347,6 +423,7 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
   }
 
   const [windowCount] = createResource(() => window.api.getWindowCount())
+  const [account, { refetch: refetchAccount }] = createResource(() => window.api.primekit.state())
 
   // Fetch sidecar credentials (available immediately, before health check)
   const [sidecar] = createResource(() => window.api.awaitInitialization())
@@ -443,11 +520,15 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
   })
 
   return (
-    <PlatformProvider value={platform}>
-      <AppBaseProviders locale={locale.latest}>
-        <Show when={true}>{(_) => <App />}</Show>
-      </AppBaseProviders>
-    </PlatformProvider>
+    <Show when={!account.loading} fallback={<LoadingSplash />}>
+      <Show when={account()?.signedIn} fallback={<PrimeKitLogin onSignedIn={() => void refetchAccount()} />}>
+        <PlatformProvider value={platform}>
+          <AppBaseProviders locale={locale.latest}>
+            <App />
+          </AppBaseProviders>
+        </PlatformProvider>
+      </Show>
+    </Show>
   )
 }
 

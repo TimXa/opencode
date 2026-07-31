@@ -49,8 +49,9 @@ import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
-import { importCodexAuth } from "./primekit-auth"
 import { startPrimeKitConnector } from "./primekit-connector"
+import { startPrimeKitBridge } from "./primekit-bridge"
+import { authorizeLocalExecutor } from "./primekit-local-executor-auth"
 
 const APP_NAMES: Record<string, string> = {
   dev: "Кит Dev",
@@ -69,6 +70,7 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 let logger: ReturnType<typeof initLogging>
 let server: SidecarListener | null = null
 let primeKitConnector: { stop: () => void } | null = null
+let primeKitBridge: { stop: () => Promise<void> } | null = null
 
 const pendingDeepLinks: string[] = []
 
@@ -170,6 +172,8 @@ const main = Effect.gen(function* () {
   const stopSidecars = async () => {
     primeKitConnector?.stop()
     primeKitConnector = null
+    await primeKitBridge?.stop()
+    primeKitBridge = null
     await killSidecar()
     wslServers.stopAll()
   }
@@ -206,7 +210,7 @@ const main = Effect.gen(function* () {
   }
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
-  if (yield* Effect.promise(importCodexAuth)) logger.log("existing Codex authorization imported for Kit")
+  if (yield* Effect.promise(authorizeLocalExecutor)) logger.log("hidden Mac executor authorized")
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("primekit://") || arg.startsWith("opencode://"))
@@ -329,11 +333,10 @@ const main = Effect.gen(function* () {
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")
       const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
-      yield* Deferred.succeed(serverReady, {
-        url: sidecar.url,
-        username: sidecar.username,
-        password: sidecar.password,
-      })
+      const bridge = yield* Effect.promise(() => startPrimeKitBridge(sidecar, logger))
+      primeKitBridge = bridge
+      yield* Deferred.succeed(serverReady, { url: bridge.url, username: bridge.username, password: bridge.password })
+      if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(sidecar, logger)
 
       if (process.platform === "win32") {
         void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
@@ -380,11 +383,6 @@ const main = Effect.gen(function* () {
       }),
     )
     server = listener
-    yield* Deferred.succeed(serverReady, {
-      url,
-      username: "opencode",
-      password,
-    })
 
     if (process.platform === "win32") {
       void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
@@ -399,9 +397,11 @@ const main = Effect.gen(function* () {
       ),
     )
 
-    if (!TEST_ONBOARDING && process.env.PRIMEKIT_CONNECTOR_ENABLED === "1") {
-      primeKitConnector = startPrimeKitConnector({ url, username: "opencode", password }, logger)
-    }
+    const localServer = { url, username: "opencode", password }
+    const bridge = yield* Effect.promise(() => startPrimeKitBridge(localServer, logger))
+    primeKitBridge = bridge
+    yield* Deferred.succeed(serverReady, { url: bridge.url, username: bridge.username, password: bridge.password })
+    if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(localServer, logger)
 
     logger.log("loading task finished")
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)

@@ -3,11 +3,7 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
 type CodexAuth = {
-  tokens?: {
-    access_token?: string
-    refresh_token?: string
-    account_id?: string
-  }
+  tokens?: { access_token?: string; refresh_token?: string; account_id?: string }
 }
 
 function dataHome() {
@@ -22,10 +18,10 @@ function jwtExpiry(token: string) {
   return Date.now() + 60 * 60 * 1000
 }
 
-export async function importCodexAuth(): Promise<boolean> {
+/** Authorize only the hidden on-device executor. Cloud chat always goes through PrimeKit. */
+export async function authorizeLocalExecutor(): Promise<boolean> {
   const source = join(homedir(), ".codex", "auth.json")
   const target = join(dataHome(), "opencode", "auth.json")
-
   let codex: CodexAuth
   try {
     codex = JSON.parse(await readFile(source, "utf8"))
@@ -40,8 +36,7 @@ export async function importCodexAuth(): Promise<boolean> {
   try {
     current = JSON.parse(await readFile(target, "utf8"))
   } catch {}
-  if (current.openai) return false
-
+  if (current.openai) return true
   current.openai = {
     type: "oauth",
     access,

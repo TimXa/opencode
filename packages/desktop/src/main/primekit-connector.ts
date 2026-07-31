@@ -2,7 +2,8 @@ import { createHash } from "node:crypto"
 import { access, realpath } from "node:fs/promises"
 import { homedir, hostname } from "node:os"
 import { join } from "node:path"
-import { createPrimeKitAccount } from "./primekit-account"
+import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
+import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
 type LocalServer = { url: string; username: string; password: string }
@@ -10,10 +11,12 @@ type Runtime = { id: number }
 type Grant = { id: number; runtime_id: number; root_path_display: string; active: boolean }
 type Command = {
   id: number
+  chat_id?: number | null
   action: string
   folder_grant_id?: number | null
   args?: Record<string, unknown>
   expires_at?: string | null
+  local_session_id?: string | null
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -61,7 +64,7 @@ function textFromMessages(messages: unknown) {
 }
 
 export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
-  const account = createPrimeKitAccount()
+  const account = primeKitAccount
   const controller = new AbortController()
 
   const connect = async () => {
@@ -72,7 +75,7 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
         device_id: deviceID(),
         device_name: hostname() || "Кит Mac",
         platform: "macos",
-        app_version: "1.18.10",
+        app_version: pkg.version,
         capabilities: ["agent_run", "read", "write", "patch", "shell"],
         workspace_path: root,
         permission_summary: "Разрешения Кита · локальная папка проекта",
@@ -100,7 +103,7 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
             device_id: deviceID(),
             device_name: hostname() || "Кит Mac",
             platform: "macos",
-            app_version: "1.18.10",
+            app_version: pkg.version,
             capabilities: ["agent_run", "read", "write", "patch", "shell"],
             workspace_path: root,
             permission_summary: "Разрешения Кита · локальная папка проекта",
@@ -117,6 +120,10 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
 
   const supervise = async () => {
     while (!controller.signal.aborted) {
+      if (!account.signedIn()) {
+        await delay(3_000)
+        continue
+      }
       try {
         await connect()
       } catch (error) {
@@ -171,11 +178,25 @@ async function execute(
     })
   await event("progress", { message: "Кит запустил локального агента", workspace: root })
   try {
-    const session = await localRequest<{ id: string }>(server, `/session?directory=${encodeURIComponent(root)}`, {
-      method: "POST",
-      body: JSON.stringify({ title: `PrimeKit command #${command.id}` }),
-    })
-    await localRequest(server, `/session/${session.id}/prompt_async?directory=${encodeURIComponent(root)}`, {
+    let localSessionID = command.local_session_id ?? undefined
+    if (localSessionID) {
+      const exists = await localRequest<{ id: string }>(
+        server,
+        `/session/${localSessionID}?directory=${encodeURIComponent(root)}`,
+      ).then(
+        () => true,
+        () => false,
+      )
+      if (!exists) localSessionID = undefined
+    }
+    if (!localSessionID) {
+      const created = await localRequest<{ id: string }>(server, `/session?directory=${encodeURIComponent(root)}`, {
+        method: "POST",
+        body: JSON.stringify({ title: `PrimeKit chat #${command.chat_id ?? command.id}` }),
+      })
+      localSessionID = created.id
+    }
+    await localRequest(server, `/session/${localSessionID}/prompt_async?directory=${encodeURIComponent(root)}`, {
       method: "POST",
       body: JSON.stringify({
         agent: "build",
@@ -183,7 +204,7 @@ async function execute(
         parts: [{ type: "text", text: prompt }],
       }),
     })
-    await event("progress", { message: "Локальная сессия создана", session_id: session.id })
+    await event("progress", { message: "Локальная сессия подключена", session_id: localSessionID })
 
     let observedBusy = false
     let idlePolls = 0
@@ -192,7 +213,7 @@ async function execute(
         server,
         `/session/status?directory=${encodeURIComponent(root)}`,
       )
-      const status = statuses[session.id]
+      const status = statuses[localSessionID]
       if (status) {
         observedBusy = true
         idlePolls = 0
@@ -205,11 +226,11 @@ async function execute(
     }
     const messages = await localRequest<unknown>(
       server,
-      `/session/${session.id}/message?directory=${encodeURIComponent(root)}&limit=100`,
+      `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
     )
     const assistantText = textFromMessages(messages) || "Кит завершил локальную задачу."
-    await event("result", { message: assistantText, session_id: session.id })
-    await finish(account, command.id, "completed", { assistant_text: assistantText, session_id: session.id })
+    await event("result", { message: assistantText, session_id: localSessionID })
+    await finish(account, command.id, "completed", { assistant_text: assistantText, session_id: localSessionID })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error("PrimeKit command failed", { commandID: command.id, message })

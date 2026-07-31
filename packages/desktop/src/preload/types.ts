@@ -41,7 +41,18 @@ export type FatalRendererError = {
   os?: string
 }
 
+export type PrimeKitAccountState = {
+  signedIn: boolean
+  user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
+}
+
 export type ElectronAPI = {
+  primekit: {
+    state: () => Promise<PrimeKitAccountState>
+    requestEmailCode: (email: string) => Promise<{ status: string; email: string }>
+    verifyEmailCode: (email: string, code: string) => Promise<PrimeKitAccountState["user"]>
+    logout: () => Promise<void>
+  }
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>

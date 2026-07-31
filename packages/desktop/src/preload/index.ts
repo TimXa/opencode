@@ -11,6 +11,12 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
 }
 
 const api: ElectronAPI = {
+  primekit: {
+    state: () => ipcRenderer.invoke("primekit-auth-state"),
+    requestEmailCode: (email) => ipcRenderer.invoke("primekit-auth-request-code", email),
+    verifyEmailCode: (email, code) => ipcRenderer.invoke("primekit-auth-verify-code", email, code),
+    logout: () => ipcRenderer.invoke("primekit-auth-logout"),
+  },
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),
