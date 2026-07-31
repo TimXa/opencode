@@ -20,8 +20,6 @@ export type SidecarListener = { stop: () => Promise<void> }
 const SIDECAR_SERVICE_NAME = "opencode server"
 const SIDECAR_START_STALL_TIMEOUT = 60_000
 const SIDECAR_STOP_TIMEOUT = 6_000
-const PRIMEKIT_API_URL = "https://primekit-job.ru/v1"
-
 type SpawnLocalServerOptions = {
   userDataPath: string
   onStdout?: (message: string) => void
@@ -53,7 +51,7 @@ export function preferAppEnv(userDataPath: string) {
     OPENCODE_CLIENT: "desktop",
     OPENCODE_CONFIG_CONTENT:
       process.env.OPENCODE_CONFIG_CONTENT ??
-      getPrimeKitProviderConfig(process.env.PRIMEKIT_API_URL ?? PRIMEKIT_API_URL),
+      getPrimeKitProviderConfig(),
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
   })
   return shellEnv

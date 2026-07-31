@@ -49,16 +49,18 @@ import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
+import { importCodexAuth } from "./primekit-auth"
+import { startPrimeKitConnector } from "./primekit-connector"
 
 const APP_NAMES: Record<string, string> = {
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
+  dev: "Кит Dev",
+  beta: "Кит Beta",
+  prod: "Кит",
 }
 const APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: "ru.primekit.kit.desktop.dev",
+  beta: "ru.primekit.kit.desktop.beta",
+  prod: "ru.primekit.kit.desktop",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -66,6 +68,7 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
 let server: SidecarListener | null = null
+let primeKitConnector: { stop: () => void } | null = null
 
 const pendingDeepLinks: string[] = []
 
@@ -165,6 +168,8 @@ const main = Effect.gen(function* () {
     },
   )
   const stopSidecars = async () => {
+    primeKitConnector?.stop()
+    primeKitConnector = null
     await killSidecar()
     wslServers.stopAll()
   }
@@ -201,6 +206,7 @@ const main = Effect.gen(function* () {
   }
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
+  if (yield* Effect.promise(importCodexAuth)) logger.log("existing Codex authorization imported for Kit")
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("primekit://") || arg.startsWith("opencode://"))
@@ -268,7 +274,7 @@ const main = Effect.gen(function* () {
       }),
     ),
   )
-  app.setAsDefaultProtocolClient("opencode")
+  app.setAsDefaultProtocolClient("primekit")
   registerRendererProtocol()
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)
@@ -392,6 +398,10 @@ const main = Effect.gen(function* () {
         }),
       ),
     )
+
+    if (!TEST_ONBOARDING) {
+      primeKitConnector = startPrimeKitConnector({ url, username: "opencode", password }, logger)
+    }
 
     logger.log("loading task finished")
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)

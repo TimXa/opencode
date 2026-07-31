@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test"
 import { getPrimeKitProviderConfig } from "./primekit-provider"
 
-test("configures Kit as the branded default provider", () => {
-  const config = JSON.parse(getPrimeKitProviderConfig("https://kit.example/v1"))
+test("configures ChatGPT Codex as the branded Kit provider", () => {
+  const config = JSON.parse(getPrimeKitProviderConfig())
 
-  expect(config.model).toBe("kit/kit")
-  expect(config.provider.kit.name).toBe("Кит")
-  expect(config.provider.kit.options.baseURL).toBe("https://kit.example/v1")
-  expect(config.provider.kit.npm).toBe("@ai-sdk/openai-compatible")
+  expect(config.model).toBe("openai/gpt-5.4")
+  expect(config.provider.openai.name).toBe("Кит")
+  expect(config.provider.openai.models["gpt-5.4"].name).toBe("Кит")
 })

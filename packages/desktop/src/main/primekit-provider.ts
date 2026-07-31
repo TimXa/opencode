@@ -1,15 +1,11 @@
-const DEFAULT_API_URL = "https://primekit-job.ru/v1"
-
-export function getPrimeKitProviderConfig(baseURL = DEFAULT_API_URL) {
+export function getPrimeKitProviderConfig() {
   return JSON.stringify({
     $schema: "https://opencode.ai/config.json",
-    model: "kit/kit",
+    model: "openai/gpt-5.4",
     provider: {
-      kit: {
-        npm: "@ai-sdk/openai-compatible",
+      openai: {
         name: "Кит",
-        options: { baseURL },
-        models: { kit: { name: "Кит" } },
+        models: { "gpt-5.4": { name: "Кит" } },
       },
     },
   })
