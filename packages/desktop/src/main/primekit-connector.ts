@@ -75,7 +75,7 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
         app_version: "1.18.10",
         capabilities: ["agent_run", "read", "write", "patch", "shell"],
         workspace_path: root,
-        permission_summary: "OpenCode permissions · local workspace scope",
+        permission_summary: "Разрешения Кита · локальная папка проекта",
       }),
     })
     const grants = await account.request<Grant[]>(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`)
@@ -103,7 +103,7 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
             app_version: "1.18.10",
             capabilities: ["agent_run", "read", "write", "patch", "shell"],
             workspace_path: root,
-            permission_summary: "OpenCode permissions · local workspace scope",
+            permission_summary: "Разрешения Кита · локальная папка проекта",
           }),
         })
         const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands`)

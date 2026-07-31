@@ -16,5 +16,5 @@ export function promptPlaceholder(input: PromptPlaceholderInput) {
 
 export function promptDesignPlaceholder(mode: PromptPlaceholderInput["mode"], placeholder: string) {
   if (mode === "shell") return placeholder
-  return "Ask anything, / for commands, @ for context..."
+  return "Напишите задачу, / — команды, @ — контекст..."
 }

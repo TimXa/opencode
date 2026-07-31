@@ -837,7 +837,7 @@ function ProviderConnection(props: {
               <div>
                 {language.t("provider.connect.opencodeZen.visit.prefix")}
                 <Link
-                  href="https://opencode.ai/zen"
+                  href="https://primekit-job.ru"
                   class="text-v2-text-text-base focus-visible:rounded-xs focus-visible:outline-2 focus-visible:outline-v2-border-border-focus"
                 >
                   {language.t("provider.connect.opencodeZen.visit.link")}
@@ -886,7 +886,7 @@ function ProviderConnection(props: {
               <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line2")}</div>
               <div class="text-14-regular text-text-base">
                 {language.t("provider.connect.opencodeZen.visit.prefix")}
-                <Link href="https://opencode.ai/zen" tabIndex={-1}>
+                <Link href="https://primekit-job.ru" tabIndex={-1}>
                   {language.t("provider.connect.opencodeZen.visit.link")}
                 </Link>
                 {language.t("provider.connect.opencodeZen.visit.suffix")}

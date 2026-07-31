@@ -120,7 +120,7 @@ export function createHomeProjectsController(home: HomeController) {
     },
     utility: {
       settings: openSettings,
-      help: () => platform.openLink("https://opencode.ai/desktop-feedback"),
+      help: () => platform.openLink("https://primekit-job.ru"),
     },
   }
 }

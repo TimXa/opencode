@@ -150,7 +150,7 @@ const AppearanceSection: Component<{ controller: AppearanceSettingsController }>
           description={
             <>
               {language.t("settings.general.row.theme.description")}{" "}
-              <Link class="settings-v2-link" href="https://opencode.ai/docs/themes/">
+              <Link class="settings-v2-link" href="https://primekit-job.ru">
                 {language.t("common.learnMore")}
               </Link>
             </>

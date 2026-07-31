@@ -399,7 +399,7 @@ const main = Effect.gen(function* () {
       ),
     )
 
-    if (!TEST_ONBOARDING) {
+    if (!TEST_ONBOARDING && process.env.PRIMEKIT_CONNECTOR_ENABLED === "1") {
       primeKitConnector = startPrimeKitConnector({ url, username: "opencode", password }, logger)
     }
 

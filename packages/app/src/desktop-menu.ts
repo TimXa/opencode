@@ -72,12 +72,11 @@ export type DesktopMenu = {
 export const DESKTOP_MENU: DesktopMenu[] = [
   {
     id: "app",
-    label: "OpenCode",
+    label: "Кит",
     platforms: ["macos"],
     items: [
       { type: "item", role: "about" },
-      { type: "item", label: "Check for Updates...", action: "app.checkForUpdates", enabled: "updater" },
-      { type: "item", label: "Settings", command: "settings.open", accelerator: { macos: "Cmd+," } },
+      { type: "item", label: "Настройки", command: "settings.open", accelerator: { macos: "Cmd+," } },
       { type: "item", label: "Reload Webview", action: "view.reload" },
       { type: "item", label: "Restart", action: "app.relaunch" },
       { type: "item", label: "Export Logs...", command: "logs.export" },
@@ -200,19 +199,18 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     id: "help",
     label: "Help",
     items: [
-      { type: "item", label: "OpenCode Documentation", href: "https://opencode.ai/docs" },
-      { type: "item", label: "Support Forum", href: "https://discord.com/invite/opencode" },
+      { type: "item", label: "Сайт Кита", href: "https://primekit-job.ru" },
       { type: "item", label: "Export Logs...", command: "logs.export" },
       { type: "separator" },
       {
         type: "item",
-        label: "Share Feedback",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml",
+        label: "Обратная связь",
+        href: "https://primekit-job.ru",
       },
       {
         type: "item",
-        label: "Report a Bug",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml",
+        label: "Сообщить об ошибке",
+        href: "https://primekit-job.ru",
       },
     ],
   },

@@ -32,7 +32,7 @@ import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
 import { DockShellForm, DockTray } from "@opencode-ai/ui/dock-surface"
 import { Icon } from "@opencode-ai/ui/icon"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
+import { Mark } from "@opencode-ai/ui/logo"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
@@ -1700,11 +1700,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               }}
                             >
                               <Show when={props.controls.model.selection.current()?.provider?.id}>
-                                <ProviderIcon
-                                  id={props.controls.model.selection.current()?.provider?.id ?? ""}
-                                  class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-                                  style={{ "will-change": "opacity", transform: "translateZ(0)" }}
-                                />
+                                <Mark class="size-4 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity duration-150" />
                               </Show>
                               <span class="truncate">
                                 {props.controls.model.selection.current()?.name ??
@@ -1733,11 +1729,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                 data-action="prompt-model"
                               >
                                 <Show when={props.controls.model.selection.current()?.provider?.id}>
-                                  <ProviderIcon
-                                    id={props.controls.model.selection.current()?.provider?.id ?? ""}
-                                    class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-                                    style={{ "will-change": "opacity", transform: "translateZ(0)" }}
-                                  />
+                                  <Mark class="size-4 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity duration-150" />
                                 </Show>
                                 <span class="truncate">
                                   {props.controls.model.selection.current()?.name ??

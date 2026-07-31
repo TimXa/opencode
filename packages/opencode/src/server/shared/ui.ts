@@ -80,6 +80,7 @@ export function serveUIEffect(
   services: { fs: FSUtil.Interface; client: HttpClient.HttpClient; disableEmbeddedWebUi: boolean },
 ) {
   return Effect.gen(function* () {
+    if (services.disableEmbeddedWebUi) return notFound()
     const embeddedWebUI = yield* Effect.promise(() => embeddedUI(services.disableEmbeddedWebUi))
     const path = new URL(request.url, "http://localhost").pathname
 

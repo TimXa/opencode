@@ -17,7 +17,7 @@ type SidecarMessage =
 
 export type SidecarListener = { stop: () => Promise<void> }
 
-const SIDECAR_SERVICE_NAME = "opencode server"
+const SIDECAR_SERVICE_NAME = "Кит — локальный агент"
 const SIDECAR_START_STALL_TIMEOUT = 60_000
 const SIDECAR_STOP_TIMEOUT = 6_000
 type SpawnLocalServerOptions = {
@@ -49,11 +49,15 @@ export function preferAppEnv(userDataPath: string) {
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
-    OPENCODE_CONFIG_CONTENT:
-      process.env.OPENCODE_CONFIG_CONTENT ??
-      getPrimeKitProviderConfig(),
+    OPENCODE_DISABLE_AUTOUPDATE: "1",
+    OPENCODE_DISABLE_MODELS_FETCH: "1",
+    OPENCODE_DISABLE_SHARE: "1",
+    OPENCODE_CONFIG_CONTENT: getPrimeKitProviderConfig(),
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
   })
+  delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+  delete process.env.OTEL_EXPORTER_OTLP_HEADERS
+  delete process.env.OTEL_RESOURCE_ATTRIBUTES
   return shellEnv
 }
 
