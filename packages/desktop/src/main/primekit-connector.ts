@@ -64,7 +64,7 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
   const account = createPrimeKitAccount()
   const controller = new AbortController()
 
-  const run = async () => {
+  const connect = async () => {
     const root = await defaultWorkspace()
     const runtime = await account.request<Runtime>("/desktop-agent/runtimes", {
       method: "POST",
@@ -115,7 +115,20 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
     }
   }
 
-  void run().catch((error) => logger.error("PrimeKit connector stopped", { message: String(error) }))
+  const supervise = async () => {
+    while (!controller.signal.aborted) {
+      try {
+        await connect()
+      } catch (error) {
+        logger.error("PrimeKit connector reconnecting", {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+      if (!controller.signal.aborted) await delay(10_000)
+    }
+  }
+
+  void supervise()
   return { stop: () => controller.abort() }
 }
 
