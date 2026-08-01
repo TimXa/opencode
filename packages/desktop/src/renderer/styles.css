@@ -57,8 +57,8 @@
 }
 
 .kit-orbit-nose {
-  fill: var(--kit-copper);
-  stroke: var(--kit-copper);
+  fill: var(--kit-moss);
+  stroke: var(--kit-moss);
   stroke-width: 4;
   stroke-linejoin: round;
 }

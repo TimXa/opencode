@@ -550,8 +550,8 @@ export const dict = {
   "error.page.action.checking": "Проверка...",
   "error.page.action.checkUpdates": "Проверить обновления",
   "error.page.action.updateTo": "Обновить до {{version}}",
-  "error.page.report.prefix": "Пожалуйста, сообщите об этой ошибке команде Кит",
-  "error.page.report.discord": "в Discord",
+  "error.page.report.prefix": "Если ошибка повторится, обратитесь в",
+  "error.page.report.discord": "поддержку PrimeKit",
   "error.page.version": "Версия: {{version}}",
 
   "error.dev.rootNotFound":

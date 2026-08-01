@@ -357,7 +357,6 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               onClick={() => platform.openLink("https://primekit-job.ru")}
             >
               <div>{language.t("error.page.report.discord")}</div>
-              <Icon name="discord" class="text-text-interactive-base" />
             </button>
           </div>
           <Show when={platform.version}>

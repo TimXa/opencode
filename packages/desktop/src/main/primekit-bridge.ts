@@ -254,7 +254,11 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     try {
       response.setHeader("access-control-allow-origin", "oc://renderer")
       response.setHeader("access-control-allow-methods", "GET, HEAD, POST, PATCH, DELETE, OPTIONS")
-      response.setHeader("access-control-allow-headers", "authorization, content-type")
+      response.setHeader(
+        "access-control-allow-headers",
+        request.headers["access-control-request-headers"] ?? "authorization, content-type",
+      )
+      response.setHeader("vary", "Origin, Access-Control-Request-Headers")
       if (request.method === "OPTIONS") {
         response.statusCode = 204
         return response.end()
