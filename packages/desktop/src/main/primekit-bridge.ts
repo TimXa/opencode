@@ -33,6 +33,11 @@ type UniversalTurnResponse = {
   executor_kind: "cloud" | "desktop"
   desktop_command_id?: number | null
 }
+type ExecutionTarget = {
+  kind: "cloud" | "desktop"
+  runtime_id: number | null
+  folder_grant_id: number | null
+}
 type ChatLocation = { kind: "general"; chatID: number } | { kind: "space"; spaceID: number; chatID: number }
 type ChatMessage = {
   id: number
@@ -500,12 +505,14 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         const input = JSON.parse((await body(request)).toString() || "{}") as { messageID?: string; parts?: Array<{ type?: string; text?: string }> }
         const prompt = (input.parts ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n").trim()
         if (!prompt) return json(response, 400, { error: "Добавьте текст" })
+        const target = await primeKitAccount.request<ExecutionTarget>(`/desktop-agent/chats/${id}/target`)
         const task = await primeKitAccount.request<UniversalTurnResponse>(`/desktop-agent/chats/${id}/turn`, {
           method: "POST",
           body: JSON.stringify({
             message: prompt,
             client_message_id: input.messageID,
             reasoning_effort: "high",
+            execution_target: target,
           }),
         })
         const chat = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
