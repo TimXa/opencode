@@ -269,6 +269,7 @@ declare global {
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
       exportDebugLogs?: () => Promise<string>
+      openDirectoryPicker: (opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => Promise<string | string[] | null>
       primekit?: {
         state: () => Promise<{
           signedIn: boolean
@@ -306,6 +307,7 @@ declare global {
           online?: boolean
           available: boolean
         }>
+        authorizeExecutionFolder: (path: string) => Promise<string>
       }
     }
   }

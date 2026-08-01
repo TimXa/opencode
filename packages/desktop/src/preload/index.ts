@@ -19,6 +19,7 @@ const api: ElectronAPI = {
     executionOptions: () => ipcRenderer.invoke("primekit-execution-options"),
     executionTarget: (chatID) => ipcRenderer.invoke("primekit-execution-target", chatID),
     setExecutionTarget: (chatID, target) => ipcRenderer.invoke("primekit-execution-target-set", chatID, target),
+    authorizeExecutionFolder: (path) => ipcRenderer.invoke("primekit-execution-folder-authorize", path),
   },
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),

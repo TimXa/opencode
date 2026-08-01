@@ -1,11 +1,11 @@
 import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
-import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity, primeKitWorkspaceName } from "./primekit-device"
+import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity } from "./primekit-device"
+import { syncPrimeKitFolderGrants } from "./primekit-folders"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
 type LocalServer = { url: string; username: string; password: string }
 type Runtime = { id: number }
-type Grant = { id: number; runtime_id: number; root_path_display: string; active: boolean }
 type Command = {
   id: number
   status: string
@@ -137,18 +137,7 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
       method: "POST",
       body: JSON.stringify(runtimePayload),
     })
-    const grants = await account.request<Grant[]>(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`)
-    let grant = grants.find((item) => item.active && item.root_path_display === root)
-    if (!grant) {
-      grant = await account.request<Grant>(`/desktop-agent/runtimes/${runtime.id}/folder-grants`, {
-        method: "POST",
-        body: JSON.stringify({
-          display_name: primeKitWorkspaceName(root),
-          root_path_display: root,
-          capabilities: ["read", "write", "patch", "shell"],
-        }),
-      })
-    }
+    let grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
     await configurePrimeKitProvider(server, account, root)
     logger.log("PrimeKit connector online", { runtimeID: runtime.id, platform: device.platform, workspace: root })
 
@@ -158,8 +147,9 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
           method: "POST",
           body: JSON.stringify(runtimePayload),
         })
+        grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
         const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands`)
-        for (const command of commands) await execute(command, grant!.id, root, server, account, logger)
+        for (const command of commands) await execute(command, grantRoots, root, server, account, logger)
       } catch (error) {
         logger.error("PrimeKit connector poll failed", { message: error instanceof Error ? error.message : String(error) })
       }
@@ -190,12 +180,23 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
 
 async function execute(
   command: Command,
-  localGrantID: number,
-  root: string,
+  grantRoots: Map<number, string>,
+  fallbackRoot: string,
   server: LocalServer,
   account: ReturnType<typeof createPrimeKitAccount>,
   logger: Logger,
 ) {
+  const root = command.folder_grant_id ? grantRoots.get(command.folder_grant_id) : fallbackRoot
+  if (!root) {
+    await finish(
+      account,
+      command,
+      command.status === "cancel_requested" ? "cancelled" : "error",
+      undefined,
+      "Folder grant is not trusted on this device",
+    )
+    return
+  }
   if (command.status === "cancel_requested") {
     if (command.local_session_id) {
       await localRequest(
@@ -209,10 +210,6 @@ async function execute(
   }
   if (command.expires_at && Date.parse(command.expires_at) <= Date.now()) {
     await finish(account, command, "error", undefined, "Command expired")
-    return
-  }
-  if (command.folder_grant_id && command.folder_grant_id !== localGrantID) {
-    await finish(account, command, "error", undefined, "Folder grant is not trusted on this device")
     return
   }
   if (command.action === "refresh_permissions") {

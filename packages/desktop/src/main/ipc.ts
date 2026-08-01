@@ -14,6 +14,8 @@ import { getPinchZoomEnabled, getWindowID, setPinchZoomEnabled, setTitlebar, upd
 import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { primeKitAccount } from "./primekit-account"
+import { authorizePrimeKitFolder, syncPrimeKitFolderGrants } from "./primekit-folders"
+import { getPrimeKitDeviceIdentity } from "./primekit-device"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -72,6 +74,15 @@ export function registerIpcHandlers(deps: Deps) {
         body: JSON.stringify(target),
       }),
   )
+  ipcMain.handle("primekit-execution-folder-authorize", async (_event, path: string) => {
+    const root = await authorizePrimeKitFolder(path)
+    const device = getPrimeKitDeviceIdentity()
+    const runtimes = await primeKitAccount.request<Array<{ id: number; device_id: string }>>("/desktop-agent/runtimes")
+    const runtime = runtimes.find((item) => item.device_id === device.id)
+    if (!runtime) throw new Error("Локальный агент ещё подключается. Повторите через несколько секунд")
+    await syncPrimeKitFolderGrants(primeKitAccount, runtime.id)
+    return root
+  })
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())

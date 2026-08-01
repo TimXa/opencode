@@ -12,7 +12,7 @@ function chatID(sessionID: string) {
 
 export function PrimeKitExecutionTarget(props: { sessionID: string }) {
   const id = createMemo(() => chatID(props.sessionID))
-  const [options] = createResource(
+  const [options, { refetch: refetchOptions }] = createResource(
     () => (id() && window.api?.primekit ? true : undefined),
     () => window.api!.primekit!.executionOptions(),
   )
@@ -40,6 +40,12 @@ export function PrimeKitExecutionTarget(props: { sessionID: string }) {
       folder_grant_id: grantID,
     })
     await refetch()
+  }
+  const addFolder = async () => {
+    const path = await window.api!.openDirectoryPicker({ title: "Разрешить Киту доступ к папке" })
+    if (!path || Array.isArray(path)) return
+    await window.api!.primekit!.authorizeExecutionFolder(path)
+    await refetchOptions()
   }
 
   return (
@@ -87,6 +93,11 @@ export function PrimeKitExecutionTarget(props: { sessionID: string }) {
                 <div class="px-3 py-2 text-[12px] text-v2-text-text-faint">Откройте папку в приложении на Mac или Windows.</div>
               </Show>
             </MenuV2.Group>
+            <MenuV2.Separator />
+            <MenuV2.Item onSelect={() => void addFolder()}>
+              <IconV2 name="folder-add" />
+              Подключить папку на этом компьютере…
+            </MenuV2.Item>
           </MenuV2.Content>
         </MenuV2.Portal>
       </MenuV2>

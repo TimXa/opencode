@@ -81,6 +81,7 @@ export type ElectronAPI = {
       chatID: number,
       target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number },
     ) => Promise<PrimeKitExecutionTarget>
+    authorizeExecutionFolder: (path: string) => Promise<string>
   }
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
