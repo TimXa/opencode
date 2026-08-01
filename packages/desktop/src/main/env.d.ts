@@ -1,5 +1,6 @@
 interface ImportMetaEnv {
   readonly OPENCODE_CHANNEL: string
+  readonly PRIMEKIT_UNSIGNED_QA: boolean
 }
 
 interface ImportMeta {

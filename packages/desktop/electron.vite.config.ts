@@ -35,6 +35,7 @@ export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+      "import.meta.env.PRIMEKIT_UNSIGNED_QA": JSON.stringify(process.env.PRIMEKIT_UNSIGNED_QA === "1"),
     },
     build: {
       rollupOptions: {

@@ -7,6 +7,7 @@ const STORE = "primekit.account.dat"
 const KEY = "tokens"
 const SESSION_FILE = "primekit.session.json"
 const SECURE_SESSION_FILE = "primekit.session.v1.bin"
+const UNSIGNED_QA = import.meta.env.PRIMEKIT_UNSIGNED_QA
 
 type AuthTokens = { access_token: string; refresh_token: string }
 export type PrimeKitUser = {
@@ -35,8 +36,12 @@ function securePath() {
   return join(app.getPath("userData"), SECURE_SESSION_FILE)
 }
 
+function secureSessionEnabled() {
+  return process.platform === "win32" || (process.platform === "darwin" && app.isPackaged && !UNSIGNED_QA)
+}
+
 function writeSecureTokens(tokens: AuthTokens) {
-  if (!safeStorage.isEncryptionAvailable()) throw new Error("Защищённое хранилище Windows недоступно")
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("Защищённое хранилище системы недоступно")
   const path = securePath()
   const temporary = `${path}.tmp`
   mkdirSync(app.getPath("userData"), { recursive: true })
@@ -46,11 +51,11 @@ function writeSecureTokens(tokens: AuthTokens) {
 
 function readTokens(): AuthTokens | undefined {
   // ponytail: ad-hoc development signatures change between builds, so macOS Keychain
-  // repeatedly asks the user to trust the rebuilt app. Keep this local session
-  // file owner-only until release builds use a stable Developer ID signature.
+  // repeatedly asks the user to trust the rebuilt app. QA keeps an owner-only file;
+  // signed releases and Windows use the platform encrypted store and migrate it once.
   getStore(STORE).delete(KEY)
   void removeStoreFileIfEmpty(STORE)
-  if (process.platform !== "win32") return readPlainTokens()
+  if (!secureSessionEnabled()) return readPlainTokens()
   try {
     if (!safeStorage.isEncryptionAvailable()) return
     const value = JSON.parse(safeStorage.decryptString(readFileSync(securePath()))) as unknown
@@ -71,7 +76,7 @@ function readTokens(): AuthTokens | undefined {
 }
 
 function writeTokens(tokens: AuthTokens) {
-  if (process.platform === "win32") {
+  if (secureSessionEnabled()) {
     writeSecureTokens(tokens)
     return
   }
@@ -189,7 +194,8 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
         return { signedIn: false as const }
       }
     },
-    requestEmailCode: (email: string) => publicRequest<{ status: string; email: string }>("/auth/email/request-code", { email }),
+    requestEmailCode: (email: string) =>
+      publicRequest<{ status: string; email: string }>("/auth/email/request-code", { email }),
     verifyEmailCode: async (email: string, code: string) => {
       tokens = await publicRequest<AuthTokens>("/auth/email/verify-code", { email, code })
       writeTokens(tokens)
