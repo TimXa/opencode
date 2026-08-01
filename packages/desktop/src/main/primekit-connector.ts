@@ -33,12 +33,12 @@ function localRequest<T>(server: LocalServer, path: string, init: RequestInit = 
   })
 }
 
-function textFromMessages(messages: unknown) {
+function textFromMessages(messages: unknown, parentID: string) {
   if (!Array.isArray(messages)) return ""
   for (const item of [...messages].reverse()) {
     if (!item || typeof item !== "object") continue
-    const row = item as { info?: { role?: string }; parts?: Array<{ type?: string; text?: string }> }
-    if (row.info?.role !== "assistant") continue
+    const row = item as { info?: { role?: string; parentID?: string }; parts?: Array<{ type?: string; text?: string }> }
+    if (row.info?.role !== "assistant" || row.info.parentID !== parentID) continue
     const text = (row.parts ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n")
     if (text.trim()) return text.trim()
   }
@@ -216,7 +216,16 @@ async function execute(
         () => true,
         () => false,
       )
-      if (!exists) localSessionID = undefined
+      if (!exists) {
+        await finish(
+          account,
+          command.id,
+          "error",
+          undefined,
+          "Local execution state was lost after the command started; retry explicitly after checking the workspace",
+        )
+        return
+      }
     }
     if (!localSessionID) {
       const created = await localRequest<{ id: string }>(server, `/session?directory=${encodeURIComponent(root)}`, {
@@ -225,18 +234,27 @@ async function execute(
       })
       localSessionID = created.id
     }
+    await event("session", { message: "Локальная сессия подключена", session_id: localSessionID })
     await configurePrimeKitProvider(server, account, root)
     const model = await activeModel(server, root)
     logger.log("PrimeKit local agent selected", model)
-    await localRequest(server, `/session/${localSessionID}/prompt_async?directory=${encodeURIComponent(root)}`, {
-      method: "POST",
-      body: JSON.stringify({
-        agent: "build",
-        model,
-        parts: [{ type: "text", text: prompt }],
-      }),
-    })
-    await event("progress", { message: "Локальная сессия подключена", session_id: localSessionID })
+    const localMessageID = `msg_pk_cmd_${command.id}`
+    const existingMessages = await localRequest<Array<{ info?: { id?: string } }>>(
+      server,
+      `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
+    )
+    const alreadySubmitted = existingMessages.some((message) => message.info?.id === localMessageID)
+    if (!alreadySubmitted) {
+      await localRequest(server, `/session/${localSessionID}/prompt_async?directory=${encodeURIComponent(root)}`, {
+        method: "POST",
+        body: JSON.stringify({
+          messageID: localMessageID,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: prompt }],
+        }),
+      })
+    }
 
     let observedBusy = false
     let idlePolls = 0
@@ -260,7 +278,8 @@ async function execute(
       server,
       `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
     )
-    const assistantText = textFromMessages(messages) || "Кит завершил локальную задачу."
+    const assistantText = textFromMessages(messages, localMessageID)
+    if (!assistantText) throw new Error("Local agent completed without a matching assistant response")
     await event("result", { message: assistantText, session_id: localSessionID })
     await finish(account, command.id, "completed", { assistant_text: assistantText, session_id: localSessionID })
   } catch (error) {
