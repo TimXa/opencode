@@ -278,6 +278,32 @@ export async function startPrimeKitComputerMcp(
   })
   const address = listener.address() as AddressInfo
   logger.log("PrimeKit computer MCP listening", { port: address.port })
+  let stopPromise: Promise<void> | undefined
+
+  const stop = () => {
+    if (stopPromise) return stopPromise
+    stopping = true
+    stopPromise = (async () => {
+      await new Promise<void>((resolve) => {
+        let settled = false
+        let timeout: ReturnType<typeof setTimeout>
+        const done = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          resolve()
+        }
+        timeout = setTimeout(() => {
+          listener.closeAllConnections?.()
+          done()
+        }, 5_000)
+        listener.close(done)
+      })
+      await queue
+      await closeDriver()
+    })()
+    return stopPromise
+  }
 
   return {
     config: {
@@ -288,12 +314,6 @@ export async function startPrimeKitComputerMcp(
       timeout: 60_000,
     },
     probe,
-    stop: async () => {
-      if (stopping) return
-      stopping = true
-      await new Promise<void>((resolve) => listener.close(() => resolve()))
-      await queue
-      await closeDriver()
-    },
+    stop,
   }
 }

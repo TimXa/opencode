@@ -3,6 +3,8 @@ import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity } from "./primekit-
 import { syncPrimeKitFolderGrants } from "./primekit-folders"
 import { currentPrimeKitAccessProfile, requestPrimeKitFullDeviceAccess } from "./primekit-access"
 import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-computer-mcp"
+import { getStore } from "./store"
+import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -24,8 +26,35 @@ type Command = {
     messages?: Array<{ role: string; content: string }>
   } | null
 }
+type CommandSession = { session_id: string; root: string; recorded_at: number }
+type CommandEvent = { event_index: number }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function commandSessions() {
+  const value = getStore().get(PRIMEKIT_COMMAND_SESSIONS_KEY)
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {} as Record<string, CommandSession>
+  return value as Record<string, CommandSession>
+}
+
+function rememberedSession(commandID: number, root: string) {
+  const value = commandSessions()[String(commandID)]
+  return value?.root === root && typeof value.session_id === "string" ? value.session_id : undefined
+}
+
+function rememberSession(commandID: number, root: string, sessionID: string) {
+  const entries = Object.entries({
+    ...commandSessions(),
+    [String(commandID)]: { session_id: sessionID, root, recorded_at: Date.now() },
+  }).sort(([, left], [, right]) => right.recorded_at - left.recorded_at)
+  getStore().set(PRIMEKIT_COMMAND_SESSIONS_KEY, Object.fromEntries(entries.slice(0, 100)))
+}
+
+function forgetSession(commandID: number) {
+  const sessions = commandSessions()
+  delete sessions[String(commandID)]
+  getStore().set(PRIMEKIT_COMMAND_SESSIONS_KEY, sessions)
+}
 
 function basic(server: LocalServer) {
   return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`
@@ -34,12 +63,18 @@ function basic(server: LocalServer) {
 function localRequest<T>(server: LocalServer, path: string, init: RequestInit = {}): Promise<T> {
   return fetch(`${server.url}${path}`, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(15_000),
     headers: { authorization: basic(server), "content-type": "application/json", ...init.headers },
-  }).then(async (response) => {
-    if (!response.ok) throw new Error(`Local Kit ${path} failed (${response.status})`)
-    if (response.status === 204) return undefined as T
-    return (await response.json()) as T
   })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Local Kit ${path} failed (${response.status})`)
+      if (response.status === 204) return undefined as T
+      return (await response.json()) as T
+    })
+    .catch((error) => {
+      if (error instanceof Error && error.message.startsWith("Local Kit ")) throw error
+      throw new Error(`Local Kit ${path} failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
 }
 
 function textFromMessages(messages: unknown, parentID: string) {
@@ -99,7 +134,6 @@ async function configurePrimeKitProvider(
       },
     }),
   })
-  await localRequest(server, "/global/dispose", { method: "POST" })
   await localRequest(server, `/config?directory=${encodeURIComponent(root)}`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -116,7 +150,6 @@ async function configurePrimeKitProvider(
       },
     }),
   })
-  await localRequest(server, `/instance/dispose?directory=${encodeURIComponent(root)}`, { method: "POST" })
 }
 
 export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitComputerMcp, logger: Logger) {
@@ -129,7 +162,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
     const access = await requestPrimeKitFullDeviceAccess()
     let computerProbe: PrimeKitComputerProbe =
       access === "full_device"
-        ? await computer.probe(true)
+        ? { enabled: true, screen: false, input: false, reason: "Computer Use проверяется в фоне" }
         : { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
     const runtimePayload = (enabled: boolean, probe: PrimeKitComputerProbe) => ({
       device_id: device.id,
@@ -163,31 +196,69 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
     let grantRoots = new Map<number, string>()
     if (access === "full_device") {
       grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
-      await configurePrimeKitProvider(server, account, root)
     }
     logger.log("PrimeKit connector online", { runtimeID: runtime.id, platform: device.platform, workspace: root })
 
-    while (!controller.signal.aborted) {
-      try {
-        const enabled = currentPrimeKitAccessProfile() === "full_device"
-        computerProbe = enabled
-          ? await computer.probe(false)
-          : { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
-        await account.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
-          method: "POST",
-          body: JSON.stringify(runtimePayload(enabled, computerProbe)),
+    let computerCheck: Promise<void> | undefined
+    const checkComputer = (prompt: boolean) => {
+      if (computerCheck) return
+      computerCheck = computer
+        .probe(prompt)
+        .then((probe) => {
+          computerProbe = probe
         })
-        if (!enabled) {
-          await delay(3_000)
-          continue
+        .catch((error) => logger.error("PrimeKit computer check failed", error))
+        .finally(() => {
+          computerCheck = undefined
+        })
+    }
+    if (access === "full_device") {
+      const prompt = getStore().get(PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY) !== true
+      if (prompt) getStore().set(PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY, true)
+      checkComputer(prompt)
+    }
+
+    let heartbeatStopped = false
+    const heartbeat = async () => {
+      while (!controller.signal.aborted && !heartbeatStopped) {
+        try {
+          const enabled = currentPrimeKitAccessProfile() === "full_device"
+          if (enabled) checkComputer(false)
+          else computerProbe = { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
+          await account.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
+            method: "POST",
+            body: JSON.stringify(runtimePayload(enabled, computerProbe)),
+          })
+        } catch (error) {
+          logger.error("PrimeKit heartbeat failed", {
+            message: error instanceof Error ? error.message : String(error),
+          })
         }
-        grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
-        const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands`)
-        for (const command of commands) await execute(command, grantRoots, root, server, account, logger)
-      } catch (error) {
-        logger.error("PrimeKit connector poll failed", { message: error instanceof Error ? error.message : String(error) })
+        await delay(20_000)
       }
-      await delay(3_000)
+    }
+    const heartbeatTask = heartbeat()
+    try {
+      while (!controller.signal.aborted) {
+        try {
+          const enabled = currentPrimeKitAccessProfile() === "full_device"
+          if (!enabled) {
+            await delay(3_000)
+            continue
+          }
+          grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
+          const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands?limit=1`)
+          for (const command of commands) await execute(command, grantRoots, root, server, account, logger)
+        } catch (error) {
+          logger.error("PrimeKit connector poll failed", {
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+        await delay(3_000)
+      }
+    } finally {
+      heartbeatStopped = true
+      await heartbeatTask
     }
   }
 
@@ -232,14 +303,16 @@ async function execute(
     return
   }
   if (command.status === "cancel_requested") {
-    if (command.local_session_id) {
+    const localSessionID = command.local_session_id ?? rememberedSession(command.id, root)
+    if (localSessionID) {
       await localRequest(
         server,
-        `/session/${command.local_session_id}/abort?directory=${encodeURIComponent(root)}`,
+        `/session/${localSessionID}/abort?directory=${encodeURIComponent(root)}`,
         { method: "POST" },
       ).catch(() => undefined)
     }
     await finish(account, command, "cancelled", undefined, "Остановлено пользователем")
+    forgetSession(command.id)
     return
   }
   if (command.expires_at && Date.parse(command.expires_at) <= Date.now()) {
@@ -261,15 +334,18 @@ async function execute(
     return
   }
 
-  let eventIndex = 0
+  const existingEvents = await account.request<CommandEvent[]>(
+    `/desktop-agent/commands/${command.id}/events?after=-1&limit=500`,
+  )
+  let eventIndex = existingEvents.reduce((maximum, item) => Math.max(maximum, item.event_index), -1) + 1
   const event = (type: string, payload: Record<string, unknown>) =>
     account.request(`/desktop-agent/commands/${command.id}/events`, {
       method: "POST",
       body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
-    }).catch(() => undefined)
-  await event("progress", { message: "Кит запустил локального агента", workspace: root })
+    })
+  await event("progress", { message: "Кит запустил локального агента", workspace: root }).catch(() => undefined)
   try {
-    let localSessionID = command.local_session_id ?? undefined
+    let localSessionID = command.local_session_id ?? rememberedSession(command.id, root)
     if (localSessionID) {
       const exists = await localRequest<{ id: string }>(
         server,
@@ -296,6 +372,7 @@ async function execute(
       })
       localSessionID = created.id
     }
+    rememberSession(command.id, root, localSessionID)
     await event("session", { message: "Локальная сессия подключена", session_id: localSessionID })
     await configurePrimeKitProvider(server, account, root)
     const model = await activeModel(server, root)
@@ -319,8 +396,7 @@ async function execute(
       })
     }
 
-    let observedBusy = false
-    let idlePolls = 0
+    let assistantText = ""
     for (let attempt = 0; attempt < 900; attempt++) {
       if (attempt % 2 === 0) {
         const remote = await account.request<{ status: string }>(`/desktop-agent/commands/${command.id}`)
@@ -346,29 +422,24 @@ async function execute(
         `/session/status?directory=${encodeURIComponent(root)}`,
       )
       const status = statuses[localSessionID]
-      if (status) {
-        observedBusy = true
-        idlePolls = 0
-      } else {
-        idlePolls++
-      }
-      // Very short tasks may finish before the first status poll.
-      if (!status && (observedBusy || idlePolls >= 3)) break
+      const messages = await localRequest<unknown>(
+        server,
+        `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
+      )
+      assistantText = textFromMessages(messages, localMessageID)
+      if (!status && assistantText) break
       await delay(1_000)
     }
-    const messages = await localRequest<unknown>(
-      server,
-      `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
-    )
-    const assistantText = textFromMessages(messages, localMessageID)
     if (!assistantText) throw new Error("Local agent completed without a matching assistant response")
     await event("result", { message: assistantText, session_id: localSessionID })
     await finish(account, command, "completed", { assistant_text: assistantText, session_id: localSessionID })
+    forgetSession(command.id)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error("PrimeKit command failed", { commandID: command.id, message })
     await event("error", { message }).catch(() => undefined)
     await finish(account, command, "error", undefined, message)
+    forgetSession(command.id)
   }
 }
 

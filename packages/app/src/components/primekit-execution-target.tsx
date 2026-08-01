@@ -2,10 +2,24 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { createMemo, createResource, For, Show } from "solid-js"
+import { showToast } from "@/utils/toast"
 
 export type PrimeKitExecutionTargetValue =
   | { kind: "cloud" }
   | { kind: "desktop"; runtime_id: number; folder_grant_id: number }
+
+const runtimeReady = (runtime: { status: string; capabilities: string[] } | undefined) =>
+  runtime?.status === "online" && runtime.capabilities.includes("agent_run")
+
+const grantReady = (
+  grant: { active: boolean; capabilities: string[]; runtime_id: number } | undefined,
+  runtimeID?: number,
+) =>
+  Boolean(
+    grant?.active &&
+      grant.runtime_id === runtimeID &&
+      ["read", "write", "patch", "shell"].every((capability) => grant.capabilities.includes(capability)),
+  )
 
 export function primeKitChatID(sessionID: string) {
   const personal = /^ses_pk_(\d+)$/.exec(sessionID)
@@ -39,7 +53,7 @@ export function PrimeKitExecutionTarget(props: Props) {
       ...value,
       runtime_name: runtime?.device_name,
       folder_name: grant?.display_name,
-      available: runtime?.status === "online",
+      available: runtimeReady(runtime) && grantReady(grant, runtime?.id),
     }
   })
   const selectedDesktop = createMemo(() => {
@@ -76,10 +90,18 @@ export function PrimeKitExecutionTarget(props: Props) {
     await refetch()
   }
   const addFolder = async () => {
-    const path = await window.api!.openDirectoryPicker({ title: "Разрешить Киту доступ к папке" })
-    if (!path || Array.isArray(path)) return
-    await window.api!.primekit!.authorizeExecutionFolder(path)
-    await refetchOptions()
+    try {
+      const path = await window.api!.openDirectoryPicker({ title: "Разрешить Киту доступ к папке" })
+      if (!path || Array.isArray(path)) return
+      await window.api!.primekit!.authorizeExecutionFolder(path)
+      await refetchOptions()
+    } catch (error) {
+      showToast({
+        title: "Не удалось подключить папку",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    }
   }
 
   return (
@@ -108,13 +130,15 @@ export function PrimeKitExecutionTarget(props: Props) {
               <For each={options()?.grants.filter((grant) => grant.active)}>
                 {(grant) => {
                   const runtime = () => options()?.runtimes.find((item) => item.id === grant.runtime_id)
-                  const online = () => runtime()?.status === "online"
+                  const available = () => runtimeReady(runtime()) && grantReady(grant, runtime()?.id)
                   return (
-                    <MenuV2.Item disabled={!online()} onSelect={() => void selectDesktop(grant.runtime_id, grant.id)}>
+                    <MenuV2.Item disabled={!available()} onSelect={() => void selectDesktop(grant.runtime_id, grant.id)}>
                       <IconV2 name="monitor" />
                       <span class="min-w-0 flex-1">
                         <span class="block truncate">{runtime()?.device_name ?? "Устройство"}</span>
-                        <span class="block truncate text-[11px] text-v2-text-text-faint">{grant.display_name}{online() ? "" : " · не в сети"}</span>
+                        <span class="block truncate text-[11px] text-v2-text-text-faint">
+                          {grant.display_name}{available() ? "" : " · недоступно"}
+                        </span>
                       </span>
                       <Show when={selectedDesktop()?.runtime_id === grant.runtime_id && selectedDesktop()?.folder_grant_id === grant.id}>
                         <Icon name="check" size="small" />

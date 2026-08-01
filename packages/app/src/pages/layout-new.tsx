@@ -62,7 +62,7 @@ export default function NewLayout(props: ParentProps) {
       }}
     >
       <div class="flex min-h-0 min-w-0 flex-1">
-        <aside class="hidden w-[320px] shrink-0 flex-col overflow-hidden bg-[#3d372e] text-[#f3f0e8] xl:flex">
+        <aside class="flex w-[clamp(260px,22vw,320px)] shrink-0 flex-col overflow-hidden bg-[#3d372e] text-[#f3f0e8]">
           <div class="shrink-0 px-4 pb-3 pt-10 [-webkit-app-region:drag]">
             <div class="flex h-9 items-center justify-between [-webkit-app-region:no-drag]">
               <button
@@ -256,15 +256,17 @@ export default function NewLayout(props: ParentProps) {
               class="flex h-12 w-full min-w-0 items-center gap-3 rounded-xl px-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.09)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
               onClick={() => navigate("/settings")}
             >
-              <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
-                {accountName().slice(0, 2).toUpperCase()}
+              <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
+                <Show when={account()?.user?.photo_url} fallback={accountName().slice(0, 2).toUpperCase()}>
+                  {(url) => <img src={url()} alt="" class="size-full object-cover" />}
+                </Show>
               </span>
               <span class="min-w-0 flex-1 truncate text-[14px] font-medium text-white/82">{accountName()}</span>
               <IconV2 name="settings-gear" size="small" class="text-white/38" />
             </button>
           </div>
         </aside>
-        <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col items-start contain-strict border-t border-white/8 bg-v2-background-bg-deep xl:rounded-tl-[12px]">
+        <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col items-start contain-strict border-t border-white/8 bg-v2-background-bg-deep rounded-tl-[12px]">
           <Suspense>{props.children}</Suspense>
         </main>
       </div>

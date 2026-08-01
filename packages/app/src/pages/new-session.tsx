@@ -30,7 +30,12 @@ export default function NewSessionPage() {
       const options = await api.executionOptions()
       const runtime = options.runtimes.find((item) => item.id === target.runtime_id)
       const grant = options.grants.find((item) => item.id === target.folder_grant_id)
-      if (runtime?.status !== "online" || !grant?.active) throw new Error("Выбранное устройство сейчас не в сети")
+      const runtimeReady = runtime?.status === "online" && runtime.capabilities.includes("agent_run")
+      const grantReady =
+        grant?.active &&
+        grant.runtime_id === runtime?.id &&
+        ["read", "write", "patch", "shell"].every((capability) => grant.capabilities.includes(capability))
+      if (!runtimeReady || !grantReady) throw new Error("Устройство или папка больше не готовы к локальной задаче")
       await api.setExecutionTarget(id, target)
     },
   })

@@ -140,10 +140,16 @@ function getConfig() {
       }
     }
     case "prod": {
+      const unsignedQA = process.env.PRIMEKIT_UNSIGNED_QA === "1"
       return {
         ...base,
         appId,
         productName: "Кит",
+        forceCodeSigning: !unsignedQA,
+        mac: unsignedQA
+          ? { ...base.mac, identity: null, notarize: false, hardenedRuntime: false }
+          : base.mac,
+        dmg: unsignedQA ? { ...base.dmg, sign: false } : base.dmg,
         protocols: { name: "Кит", schemes: ["primekit"] },
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },

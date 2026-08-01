@@ -277,13 +277,20 @@ declare global {
         }>
         logout: () => Promise<void>
         executionOptions: () => Promise<{
-          runtimes: Array<{ id: number; device_name: string; platform: string; status: "online" | "offline" }>
+          runtimes: Array<{
+            id: number
+            device_name: string
+            platform: string
+            status: "online" | "offline"
+            capabilities: string[]
+          }>
           grants: Array<{
             id: number
             runtime_id: number
             display_name: string
             root_path_display: string
             active: boolean
+            capabilities: string[]
           }>
         }>
         executionTarget: (chatID: number) => Promise<{
