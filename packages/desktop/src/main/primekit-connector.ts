@@ -10,7 +10,8 @@ import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
 type LocalServer = { url: string; username: string; password: string }
-type Runtime = { id: number }
+type Runtime = { id: number; device_token: string; device_token_expires_at: string }
+type DeviceClient = { request: <T>(path: string, init?: RequestInit) => Promise<T> }
 type Command = {
   id: number
   status: string
@@ -31,6 +32,32 @@ type CommandSession = { session_id: string; root: string; recorded_at: number }
 type CommandEvent = { event_index: number }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+class DeviceRequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+  }
+}
+
+function createDeviceClient(baseURL: string, token: string): DeviceClient {
+  return {
+    request: async <T>(path: string, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers)
+      headers.set("authorization", `Bearer ${token}`)
+      if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
+      const response = await fetch(`${baseURL}${path}`, { ...init, headers })
+      if (!response.ok) {
+        const body = await response.json().catch(() => undefined) as { detail?: unknown } | undefined
+        throw new DeviceRequestError(
+          response.status,
+          typeof body?.detail === "string" ? body.detail : `PrimeKit device API returned ${response.status}`,
+        )
+      }
+      if (response.status === 204) return undefined as T
+      return await response.json() as T
+    },
+  }
+}
 
 function commandSessions() {
   const value = getStore().get(PRIMEKIT_COMMAND_SESSIONS_KEY)
@@ -176,6 +203,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
       method: "POST",
       body: JSON.stringify(runtimePayload(access === "full_device", computerProbe)),
     })
+    const deviceClient = createDeviceClient(account.baseURL, runtime.device_token)
     let grantRoots = new Map<number, string>()
     if (access === "full_device") {
       grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
@@ -208,7 +236,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
           const enabled = currentPrimeKitAccessProfile() === "full_device"
           if (enabled) checkComputer(false)
           else computerProbe = { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
-          await account.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
+          await deviceClient.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
             method: "POST",
             body: JSON.stringify(runtimePayload(enabled, computerProbe)),
           })
@@ -230,9 +258,10 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
             continue
           }
           grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
-          const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands?limit=1`)
-          for (const command of commands) await execute(command, grantRoots, root, server, account, logger)
+          const commands = await deviceClient.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands?limit=1`)
+          for (const command of commands) await execute(command, grantRoots, root, server, account, deviceClient, logger)
         } catch (error) {
+          if (error instanceof DeviceRequestError && error.status === 401) throw error
           logger.error("PrimeKit connector poll failed", {
             message: error instanceof Error ? error.message : String(error),
           })
@@ -272,12 +301,13 @@ async function execute(
   fallbackRoot: string,
   server: LocalServer,
   account: ReturnType<typeof createPrimeKitAccount>,
+  device: DeviceClient,
   logger: Logger,
 ) {
   const root = command.folder_grant_id ? grantRoots.get(command.folder_grant_id) : fallbackRoot
   if (!root) {
     await finish(
-      account,
+      device,
       command,
       command.status === "cancel_requested" ? "cancelled" : "error",
       undefined,
@@ -294,16 +324,16 @@ async function execute(
         { method: "POST" },
       ).catch(() => undefined)
     }
-    await finish(account, command, "cancelled", undefined, "Остановлено пользователем")
+    await finish(device, command, "cancelled", undefined, "Остановлено пользователем")
     forgetSession(command.id)
     return
   }
   if (command.expires_at && Date.parse(command.expires_at) <= Date.now()) {
-    await finish(account, command, "error", undefined, "Command expired")
+    await finish(device, command, "error", undefined, "Command expired")
     return
   }
   if (command.action === "refresh_permissions") {
-    await finish(account, command, "completed", { state: "ready", workspace: root })
+    await finish(device, command, "completed", { state: "ready", workspace: root })
     return
   }
   const prompt =
@@ -313,14 +343,14 @@ async function execute(
         ? command.args.prompt.trim()
         : ""
   if (!prompt || !["scan_workspace", "agent_run"].includes(command.action)) {
-    await finish(account, command, "error", undefined, `Unsupported desktop action: ${command.action}`)
+    await finish(device, command, "error", undefined, `Unsupported desktop action: ${command.action}`)
     return
   }
 
   let previousEventIndex = -1
   while (true) {
-    const existingEvents = await account.request<CommandEvent[]>(
-      `/desktop-agent/commands/${command.id}/events?after=${previousEventIndex}&limit=500`,
+    const existingEvents = await device.request<CommandEvent[]>(
+      `/desktop-agent/device/commands/${command.id}/events?after=${previousEventIndex}&limit=500`,
     )
     if (existingEvents.length === 0) break
     previousEventIndex = existingEvents.reduce(
@@ -331,7 +361,7 @@ async function execute(
   }
   let eventIndex = previousEventIndex + 1
   const event = (type: string, payload: Record<string, unknown>) =>
-    account.request(`/desktop-agent/commands/${command.id}/events`, {
+    device.request(`/desktop-agent/commands/${command.id}/events`, {
       method: "POST",
       body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
     })
@@ -339,7 +369,7 @@ async function execute(
   if (!gateway.configured) {
     const message = "Модельный шлюз PrimeKit не настроен на сервере"
     await event("error", { message }).catch(() => undefined)
-    await finish(account, command, "error", undefined, message)
+    await finish(device, command, "error", undefined, message)
     return
   }
   await event("progress", { message: "Кит запустил локального агента", workspace: root }).catch(() => undefined)
@@ -355,7 +385,7 @@ async function execute(
       )
       if (!exists) {
         await finish(
-          account,
+          device,
           command,
           "error",
           undefined,
@@ -399,7 +429,7 @@ async function execute(
     let assistantText = ""
     for (let attempt = 0; attempt < 900; attempt++) {
       if (attempt % 2 === 0) {
-        const remote = await account.request<{ status: string }>(`/desktop-agent/commands/${command.id}`)
+        const remote = await device.request<{ status: string }>(`/desktop-agent/device/commands/${command.id}`)
         if (remote.status === "cancel_requested") {
           await localRequest(
             server,
@@ -407,12 +437,12 @@ async function execute(
             { method: "POST" },
           ).catch(() => undefined)
           await event("cancelled", { message: "Локальная задача остановлена пользователем", session_id: localSessionID })
-          await finish(account, command, "cancelled", undefined, "Остановлено пользователем")
+          await finish(device, command, "cancelled", undefined, "Остановлено пользователем")
           return
         }
       }
       if (attempt % 15 === 0) {
-        await account.request(`/desktop-agent/commands/${command.id}/lease`, {
+        await device.request(`/desktop-agent/commands/${command.id}/lease`, {
           method: "POST",
           body: JSON.stringify({ claim_token: command.claim_token }),
         })
@@ -433,25 +463,25 @@ async function execute(
     }
     if (!assistantText) throw new Error("Local agent completed without a matching assistant response")
     await event("result", { message: assistantText, session_id: localSessionID })
-    await finish(account, command, "completed", { assistant_text: assistantText, session_id: localSessionID })
+    await finish(device, command, "completed", { assistant_text: assistantText, session_id: localSessionID })
     forgetSession(command.id)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error("PrimeKit command failed", { commandID: command.id, message })
     await event("error", { message }).catch(() => undefined)
-    await finish(account, command, "error", undefined, message)
+    await finish(device, command, "error", undefined, message)
     forgetSession(command.id)
   }
 }
 
 function finish(
-  account: ReturnType<typeof createPrimeKitAccount>,
+  device: DeviceClient,
   command: Command,
   status: "completed" | "error" | "cancelled",
   result?: Record<string, unknown>,
   errorText?: string,
 ) {
-  return account.request(`/desktop-agent/commands/${command.id}/result`, {
+  return device.request(`/desktop-agent/commands/${command.id}/result`, {
     method: "POST",
     body: JSON.stringify({ claim_token: command.claim_token, status, result, error_text: errorText }),
   })
