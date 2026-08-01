@@ -1,0 +1,76 @@
+name: PrimeKit Windows QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [primekit-brand]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: primekit-windows-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      OPENCODE_CHANNEL: prod
+      OPENCODE_VERSION: 1.18.15
+      RUST_TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Typecheck desktop
+        working-directory: packages/desktop
+        run: bun run typecheck
+
+      - name: Prepare target-native resources
+        working-directory: packages/desktop
+        run: bun ./scripts/prepare.ts
+
+      - name: Build renderer and main process
+        working-directory: packages/desktop
+        run: bun run build
+
+      - name: Reject host-native contamination
+        shell: pwsh
+        run: |
+          $bundle = Get-ChildItem packages/desktop/out/main -Recurse -File | Get-Content -Raw
+          if ($bundle -match 'node-pty-darwin|node-pty-linux') {
+            throw 'Windows bundle contains a non-Windows PTY dependency'
+          }
+          if ($bundle -notmatch 'node-pty-win32-x64') {
+            throw 'Windows x64 PTY dependency is missing from the bundle'
+          }
+
+      - name: Package unsigned QA installer
+        working-directory: packages/desktop
+        run: bunx electron-builder --win --x64 --publish never --config electron-builder.config.ts
+
+      - name: Verify QA artifacts
+        shell: pwsh
+        run: |
+          $installer = 'packages/desktop/dist/kit-desktop-win-x64.exe'
+          $app = 'packages/desktop/dist/win-unpacked/Кит.exe'
+          if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
+          if (-not (Test-Path $app)) { throw "Missing unpacked app: $app" }
+          $signature = Get-AuthenticodeSignature $installer
+          if ($signature.Status -notin @('NotSigned', 'UnknownError')) {
+            throw "Unexpected QA signature state: $($signature.Status)"
+          }
+          Get-Item $installer, $app | Select-Object Name, Length, VersionInfo
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: primekit-windows-x64-unsigned-qa
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            packages/desktop/dist/kit-desktop-win-x64.exe
+            packages/desktop/dist/kit-desktop-win-x64.exe.blockmap
+            packages/desktop/dist/win-unpacked/**
