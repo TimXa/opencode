@@ -320,6 +320,12 @@ const main = Effect.gen(function* () {
     setBackgroundColor: (color) => setBackgroundColor(color),
     exportDebugLogs: () => exportDebugLogs(),
     recordFatalRendererError: (error) => writeLog("renderer", "fatal renderer error", { ...error }, "error"),
+    requestPrimeKitComputerAccess: async () => {
+      if (!primeKitComputer) {
+        return { enabled: true, screen: false, input: false, reason: "Локальный агент ещё запускается" }
+      }
+      return primeKitComputer.probe(true)
+    },
   })
   registerWslIpcHandlers(wslServers)
   void updater.start()

@@ -7,20 +7,8 @@ import { createHomeScrollController } from "./home/home-scroll-controller"
 import { createHomeSessionSearchController } from "./home/home-session-search-controller"
 import { createHomeSessionsController } from "./home/home-sessions-controller"
 import { HomeSessions } from "./home/home-sessions"
-import { createEffect } from "solid-js"
-import { useLayout } from "@/context/layout"
-import { useNavigate } from "@solidjs/router"
-import { base64Encode } from "@opencode-ai/core/util/encode"
 
 export function NewHome() {
-  const layout = useLayout()
-  const navigate = useNavigate()
-  createEffect(() => {
-    if (!layout.ready()) return
-    const project = layout.projects.list().find((item) => item.name === "Личные чаты") ?? layout.projects.list()[0]
-    if (!project) return
-    navigate(`/${base64Encode(project.worktree)}/session`, { replace: true })
-  })
   const home = createHomeController()
   const projects = createHomeProjectsController(home)
   const sessions = createHomeSessionsController(home)

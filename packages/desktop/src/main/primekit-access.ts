@@ -1,12 +1,22 @@
 import { dialog } from "electron"
 import { getStore } from "./store"
-import { PRIMEKIT_ACCESS_PROFILE_KEY } from "./store-keys"
+import { PRIMEKIT_ACCESS_PROFILE_KEY, PRIMEKIT_COMPUTER_PERMISSION_STATE_KEY } from "./store-keys"
 
 export type PrimeKitAccessProfile = "full_device" | "restricted"
+export type PrimeKitComputerPermissionState = "not_requested" | "incomplete" | "ready"
 
 export function currentPrimeKitAccessProfile(): PrimeKitAccessProfile | undefined {
   const value = getStore().get(PRIMEKIT_ACCESS_PROFILE_KEY)
   return value === "full_device" || value === "restricted" ? value : undefined
+}
+
+export function currentPrimeKitComputerPermissionState(): PrimeKitComputerPermissionState {
+  const value = getStore().get(PRIMEKIT_COMPUTER_PERMISSION_STATE_KEY)
+  return value === "incomplete" || value === "ready" ? value : "not_requested"
+}
+
+export function setPrimeKitComputerPermissionState(state: PrimeKitComputerPermissionState) {
+  getStore().set(PRIMEKIT_COMPUTER_PERMISSION_STATE_KEY, state)
 }
 
 export async function requestPrimeKitFullDeviceAccess(force = false): Promise<PrimeKitAccessProfile> {

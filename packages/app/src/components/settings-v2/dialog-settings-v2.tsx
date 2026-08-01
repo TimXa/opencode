@@ -1,4 +1,4 @@
-import { Component, createMemo, createSignal, startTransition } from "solid-js"
+import { Component, Show, createMemo, createSignal, startTransition } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/v2/dialog-v2"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -14,6 +14,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
+import { SettingsPrimeKitAccount } from "./primekit-account"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -26,6 +27,7 @@ export const DialogSettings: Component<{
   const tabs = useTabs()
   const serverSync = useServerSync()
   const [tab, setTab] = createSignal(props.defaultValue ?? "general")
+  const primekit = Boolean(window.api?.primekit)
   const directory = createMemo(() => {
     const route = layout.route()
     if (route.type === "dir-new-sesssion") return route.dir
@@ -57,6 +59,12 @@ export const DialogSettings: Component<{
                 <div class="flex flex-col gap-1.5">
                   <TabsV2.SectionTitle>{language.t("settings.section.desktop")}</TabsV2.SectionTitle>
                   <div class="flex flex-col gap-1.5 w-full">
+                    <Show when={primekit}>
+                      <TabsV2.Trigger value="primekit">
+                        <Icon name="shield" />
+                        Аккаунт и устройства
+                      </TabsV2.Trigger>
+                    </Show>
                     <TabsV2.Trigger value="general">
                       <Icon name="sliders" />
                       {language.t("settings.tab.general")}
@@ -68,7 +76,8 @@ export const DialogSettings: Component<{
                   </div>
                 </div>
 
-                <div class="flex flex-col gap-1.5">
+                <Show when={!primekit}>
+                  <div class="flex flex-col gap-1.5">
                   <TabsV2.SectionTitle>{language.t("settings.section.server")}</TabsV2.SectionTitle>
                   <div class="flex flex-col gap-1.5 w-full">
                     <TabsV2.Trigger value="servers">
@@ -84,7 +93,8 @@ export const DialogSettings: Component<{
                       {language.t("settings.models.title")}
                     </TabsV2.Trigger>
                   </div>
-                </div>
+                  </div>
+                </Show>
               </div>
             </div>
             <div class="settings-v2-nav-footer">
@@ -93,6 +103,9 @@ export const DialogSettings: Component<{
             </div>
           </div>
         </TabsV2.List>
+        <TabsV2.Content value="primekit" class="settings-v2-panel">
+          <SettingsPrimeKitAccount />
+        </TabsV2.Content>
         <TabsV2.Content value="general" class="settings-v2-panel">
           <SettingsGeneralV2 sessionID={props.sessionID} />
         </TabsV2.Content>

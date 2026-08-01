@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 45
     env:
       OPENCODE_CHANNEL: prod
-      OPENCODE_VERSION: 1.18.16
+      OPENCODE_VERSION: 1.18.17
       RUST_TARGET: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744

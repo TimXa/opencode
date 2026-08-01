@@ -72,6 +72,12 @@ export type PrimeKitExecutionTarget = {
   online?: boolean
   available: boolean
 }
+export type PrimeKitComputerAccess = {
+  enabled: boolean
+  screen: boolean
+  input: boolean
+  reason?: string
+}
 
 export type ElectronAPI = {
   primekit: {
@@ -79,6 +85,7 @@ export type ElectronAPI = {
     requestEmailCode: (email: string) => Promise<{ status: string; email: string }>
     verifyEmailCode: (email: string, code: string) => Promise<PrimeKitAccountState["user"]>
     logout: () => Promise<void>
+    requestComputerAccess: () => Promise<PrimeKitComputerAccess>
     executionOptions: () => Promise<{ runtimes: PrimeKitRuntime[]; grants: PrimeKitFolderGrant[] }>
     executionTarget: (chatID: number) => Promise<PrimeKitExecutionTarget>
     setExecutionTarget: (

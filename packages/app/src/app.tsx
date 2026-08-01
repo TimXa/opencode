@@ -280,6 +280,12 @@ declare global {
           user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
         }>
         logout: () => Promise<void>
+        requestComputerAccess: () => Promise<{
+          enabled: boolean
+          screen: boolean
+          input: boolean
+          reason?: string
+        }>
         executionOptions: () => Promise<{
           runtimes: Array<{
             id: number

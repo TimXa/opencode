@@ -16,6 +16,7 @@ const api: ElectronAPI = {
     requestEmailCode: (email) => ipcRenderer.invoke("primekit-auth-request-code", email),
     verifyEmailCode: (email, code) => ipcRenderer.invoke("primekit-auth-verify-code", email, code),
     logout: () => ipcRenderer.invoke("primekit-auth-logout"),
+    requestComputerAccess: () => ipcRenderer.invoke("primekit-computer-access-request"),
     executionOptions: () => ipcRenderer.invoke("primekit-execution-options"),
     executionTarget: (chatID) => ipcRenderer.invoke("primekit-execution-target", chatID),
     setExecutionTarget: (chatID, target) => ipcRenderer.invoke("primekit-execution-target-set", chatID, target),

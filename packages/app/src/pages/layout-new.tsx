@@ -12,16 +12,19 @@ import { displayName, sortedRootSessions } from "./layout/helpers"
 import { sessionTitle } from "@/utils/session-title"
 import { setNavigate } from "@/utils/notification-click"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
+import { useSettingsDialog } from "@/components/settings-dialog"
 
 export default function NewLayout(props: ParentProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const layout = useLayout()
   const serverSync = useServerSync()
+  const showSettings = useSettingsDialog(window.api?.primekit ? "primekit" : "general")
   setNavigate(navigate)
   const [state, setState] = createStore({
     debugTools: true,
     expanded: {} as Record<string, boolean>,
+    spaceLimit: {} as Record<string, number>,
     personalLimit: 16,
   })
   const [account] = createResource(async () => window.api?.primekit?.state())
@@ -65,21 +68,11 @@ export default function NewLayout(props: ParentProps) {
         <aside class="flex w-[clamp(260px,22vw,320px)] shrink-0 flex-col overflow-hidden bg-[#3d372e] text-[#f3f0e8]">
           <div class="shrink-0 px-4 pb-3 pt-10 [-webkit-app-region:drag]">
             <div class="flex h-9 items-center justify-between [-webkit-app-region:no-drag]">
-              <button
-                type="button"
-                class="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-[rgba(255,255,255,0.08)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
-                onClick={() => startNewChat()}
-              >
+              <div class="flex min-w-0 items-center px-1.5 py-1">
                 <span class="truncate text-[18px] font-semibold tracking-[-0.02em]">Кит</span>
-                <IconV2 name="chevron-down" size="small" class="text-white/45" />
-              </button>
+              </div>
               <div class="flex items-center gap-1">
                 <IconButton icon="magnifying-glass" variant="ghost" size="large" aria-label="Поиск" onClick={() => navigate("/")} />
-                <button type="button" class="flex size-8 items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-white/80 motion-reduce:transition-none" aria-label="Уведомления">
-                  <svg viewBox="0 0 20 20" class="size-4" fill="none" aria-hidden="true">
-                    <path d="M6.25 8.1a3.75 3.75 0 0 1 7.5 0v2.15c0 1.1.42 2.16 1.18 2.96l.32.34H4.75l.32-.34a4.3 4.3 0 0 0 1.18-2.96V8.1ZM8.25 15.2c.3.8.9 1.2 1.75 1.2s1.45-.4 1.75-1.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </button>
               </div>
             </div>
             <button
@@ -101,6 +94,7 @@ export default function NewLayout(props: ParentProps) {
                   const slug = base64Encode(project.worktree)
                   const [projectStore] = serverSync().child(project.worktree)
                   const sessions = createMemo(() => sortedRootSessions(projectStore, Date.now()))
+                  const sessionLimit = createMemo(() => state.spaceLimit[project.worktree] ?? 8)
                   const selected = createMemo(() => location.pathname.startsWith(`/${slug}`))
                   const expanded = createMemo(() => state.expanded[project.worktree] ?? selected())
                   return (
@@ -161,7 +155,7 @@ export default function NewLayout(props: ParentProps) {
                           >
                             <span class="text-base leading-none">＋</span> Новый чат
                           </button>
-                          <For each={sessions().slice(0, 8)}>
+                          <For each={sessions().slice(0, sessionLimit())}>
                             {(session) => (
                               <button
                                 type="button"
@@ -176,13 +170,13 @@ export default function NewLayout(props: ParentProps) {
                               </button>
                             )}
                           </For>
-                          <Show when={sessions().length > 8}>
+                          <Show when={sessions().length > sessionLimit()}>
                             <button
                               type="button"
                               class="h-7 truncate rounded-md px-2 text-left text-[13px] text-white/35 hover:bg-white/7 hover:text-white/65"
-                              onClick={() => startNewChat(project.worktree)}
+                              onClick={() => setState("spaceLimit", project.worktree, sessionLimit() + 24)}
                             >
-                              Ещё {sessions().length - 8}
+                              Ещё {sessions().length - sessionLimit()}
                             </button>
                           </Show>
                         </div>
@@ -254,7 +248,7 @@ export default function NewLayout(props: ParentProps) {
             <button
               type="button"
               class="flex h-12 w-full min-w-0 items-center gap-3 rounded-xl px-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.09)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
-              onClick={() => navigate("/settings")}
+              onClick={showSettings}
             >
               <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
                 <Show when={account()?.user?.photo_url} fallback={accountName().slice(0, 2).toUpperCase()}>

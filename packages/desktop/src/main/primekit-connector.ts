@@ -6,7 +6,12 @@ import {
   writePrimeKitDeviceCredential,
 } from "./primekit-device"
 import { syncPrimeKitFolderGrants } from "./primekit-folders"
-import { currentPrimeKitAccessProfile, requestPrimeKitFullDeviceAccess } from "./primekit-access"
+import {
+  currentPrimeKitAccessProfile,
+  currentPrimeKitComputerPermissionState,
+  requestPrimeKitFullDeviceAccess,
+  setPrimeKitComputerPermissionState,
+} from "./primekit-access"
 import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-computer-mcp"
 import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
@@ -261,6 +266,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
         .probe(prompt)
         .then((probe) => {
           computerProbe = probe
+          setPrimeKitComputerPermissionState(probe.screen && probe.input ? "ready" : "incomplete")
         })
         .catch((error) => logger.error("PrimeKit computer check failed", error))
         .finally(() => {
@@ -268,8 +274,8 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
         })
     }
     if (access === "full_device") {
-      const prompt = getStore().get(PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY) !== true
-      if (prompt) getStore().set(PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY, true)
+      const legacyPrompted = getStore().get(PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY) === true
+      const prompt = currentPrimeKitComputerPermissionState() === "not_requested" && !legacyPrompted
       checkComputer(prompt)
     }
 

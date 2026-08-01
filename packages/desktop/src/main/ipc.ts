@@ -17,6 +17,8 @@ import { primeKitAccount } from "./primekit-account"
 import { authorizePrimeKitFolder, syncPrimeKitFolderGrants } from "./primekit-folders"
 import { getPrimeKitDeviceIdentity } from "./primekit-device"
 import { requestPrimeKitFullDeviceAccess } from "./primekit-access"
+import { setPrimeKitComputerPermissionState } from "./primekit-access"
+import type { PrimeKitComputerProbe } from "./primekit-computer-mcp"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -45,6 +47,7 @@ type Deps = {
   setBackgroundColor: (color: string) => void
   exportDebugLogs: () => Promise<string>
   recordFatalRendererError: (error: FatalRendererError) => Promise<void> | void
+  requestPrimeKitComputerAccess: () => Promise<PrimeKitComputerProbe>
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -57,6 +60,17 @@ export function registerIpcHandlers(deps: Deps) {
     primeKitAccount.verifyEmailCode(email, code),
   )
   ipcMain.handle("primekit-auth-logout", () => primeKitAccount.logout())
+  ipcMain.handle("primekit-computer-access-request", async () => {
+    const access = await requestPrimeKitFullDeviceAccess(true)
+    if (access !== "full_device") {
+      const result = { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
+      setPrimeKitComputerPermissionState("incomplete")
+      return result
+    }
+    const result = await deps.requestPrimeKitComputerAccess()
+    setPrimeKitComputerPermissionState(result.screen && result.input ? "ready" : "incomplete")
+    return result
+  })
   ipcMain.handle("primekit-execution-options", async () => {
     const [runtimes, grants] = await Promise.all([
       primeKitAccount.request("/desktop-agent/runtimes"),
