@@ -24,6 +24,12 @@ jobs:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
 
       - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+
+      - name: Smoke Computer Use runtime
+        working-directory: packages/desktop
+        run: bun run smoke:computer
 
       - name: Typecheck desktop
         working-directory: packages/desktop
@@ -59,11 +65,20 @@ jobs:
           $app = 'packages/desktop/dist/win-unpacked/Кит.exe'
           if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
           if (-not (Test-Path $app)) { throw "Missing unpacked app: $app" }
+          $cua = 'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@trycua/cua-driver-win32-x64-msvc'
+          foreach ($file in @('cua_driver_node_runtime.node', 'cua_driver_sdk.dll', 'node-runtime-NOTICE.md')) {
+            $path = Join-Path $cua $file
+            if (-not (Test-Path $path)) { throw "Missing packaged Computer Use runtime: $path" }
+          }
           $signature = Get-AuthenticodeSignature $installer
           if ($signature.Status -notin @('NotSigned', 'UnknownError')) {
             throw "Unexpected QA signature state: $($signature.Status)"
           }
           Get-Item $installer, $app | Select-Object Name, Length, VersionInfo
+
+      - name: Smoke packaged Computer Use runtime
+        working-directory: packages/desktop
+        run: bun run smoke:computer:packaged -- dist/win-unpacked/Кит.exe
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

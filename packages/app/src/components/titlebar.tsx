@@ -353,11 +353,20 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   "md:pl-4": !macTrafficLights(),
                 }}
               >
-                <ChannelIndicator debugTools={props.debugTools} />
-                <Show when={windows() || linux()}>
-                  <WindowsAppMenu command={command} platform={platform} variant="v2" />
-                </Show>
-                <TooltipV2
+                <Show
+                  when={!window.api?.primekit}
+                  fallback={
+                    <>
+                      <div class="flex-1" />
+                      <TitlebarV2Right state={v2RightState()} />
+                    </>
+                  }
+                >
+                  <ChannelIndicator debugTools={props.debugTools} />
+                  <Show when={windows() || linux()}>
+                    <WindowsAppMenu command={command} platform={platform} variant="v2" />
+                  </Show>
+                  <TooltipV2
                   placement="bottom"
                   value={
                     <>
@@ -378,9 +387,9 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                     aria-label={language.t("home.title")}
                     aria-pressed={layout.route().type === "home"}
                   />
-                </TooltipV2>
+                  </TooltipV2>
 
-                <TitlebarTabStrip
+                  <TitlebarTabStrip
                   tabs={tabsStore}
                   currentTab={currentTab}
                   forceTruncate={tabsAreOverflowing()}
@@ -394,8 +403,8 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                     if (index !== -1) tabsStoreActions.closeTab(index)
                   }}
                   onReorder={(keys) => tabsStoreActions.reorder(keys)}
-                />
-                <TooltipV2
+                  />
+                  <TooltipV2
                   placement="bottom"
                   value={
                     <>
@@ -413,9 +422,10 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                     onClick={openNewTab}
                     aria-label={language.t("command.session.new")}
                   />
-                </TooltipV2>
-                <div class="flex-1" />
-                <TitlebarV2Right state={v2RightState()} />
+                  </TooltipV2>
+                  <div class="flex-1" />
+                  <TitlebarV2Right state={v2RightState()} />
+                </Show>
               </div>
             )
           }}

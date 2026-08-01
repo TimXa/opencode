@@ -56,6 +56,7 @@ const getBase = (appId: string): Configuration => ({
     desktopName: `${appId}.desktop`,
   },
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
+  asarUnpack: ["**/node_modules/@trycua/**/*", "**/node_modules/@ubjs/**/*"],
   extraResources: [
     {
       from: "resources/",

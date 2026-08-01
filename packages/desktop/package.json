@@ -16,6 +16,8 @@
     "prebuild": "bun ./scripts/prebuild.ts",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "smoke:computer": "node --experimental-strip-types scripts/primekit-computer-smoke.mjs",
+    "smoke:computer:packaged": "node scripts/primekit-computer-packaged-smoke.mjs",
     "package": "electron-builder --config electron-builder.config.ts",
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
@@ -24,6 +26,8 @@
   },
   "main": "./out/main/index.js",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@trycua/cua-driver": "0.14.2",
     "@zip.js/zip.js": "2.7.62",
     "effect": "catalog:",
     "electron-context-menu": "4.1.2",
@@ -31,7 +35,8 @@
     "electron-store": "11.0.2",
     "electron-updater": "6.8.9",
     "electron-window-state": "^5.0.3",
-    "marked": "^15"
+    "marked": "^15",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",

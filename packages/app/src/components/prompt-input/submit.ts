@@ -219,6 +219,7 @@ type PromptSubmitInput = {
   onQueue?: (draft: FollowupDraft) => void
   onAbort?: () => void
   onSubmit?: () => void
+  beforeFirstPrompt?: (sessionID: string) => Promise<void>
   model?: ModelSelection
 }
 
@@ -430,6 +431,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         description: language.t("prompt.toast.promptSendFailed.description"),
       })
       return
+    }
+    if (isNewSession && input.beforeFirstPrompt) {
+      try {
+        await input.beforeFirstPrompt(session.id)
+      } catch (err) {
+        showToast({
+          title: "Не удалось подключить устройство",
+          description: errorMessage(err),
+        })
+        return
+      }
     }
 
     const model = {

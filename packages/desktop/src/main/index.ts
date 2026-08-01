@@ -52,6 +52,9 @@ import { startBackgroundCli } from "./background-cli"
 import { startPrimeKitConnector } from "./primekit-connector"
 import { startPrimeKitBridge } from "./primekit-bridge"
 import { authorizeLocalExecutor } from "./primekit-local-executor-auth"
+import { currentPrimeKitAccessProfile } from "./primekit-access"
+import { startPrimeKitComputerMcp, type PrimeKitComputerMcp } from "./primekit-computer-mcp"
+import { getPrimeKitProviderConfig } from "./primekit-provider"
 
 const APP_NAMES: Record<string, string> = {
   dev: "Кит Dev",
@@ -71,6 +74,7 @@ let logger: ReturnType<typeof initLogging>
 let server: SidecarListener | null = null
 let primeKitConnector: { stop: () => void } | null = null
 let primeKitBridge: { stop: () => Promise<void> } | null = null
+let primeKitComputer: PrimeKitComputerMcp | null = null
 
 const pendingDeepLinks: string[] = []
 
@@ -172,6 +176,8 @@ const main = Effect.gen(function* () {
   const stopSidecars = async () => {
     primeKitConnector?.stop()
     primeKitConnector = null
+    await primeKitComputer?.stop()
+    primeKitComputer = null
     await primeKitBridge?.stop()
     primeKitBridge = null
     await killSidecar()
@@ -233,14 +239,13 @@ const main = Effect.gen(function* () {
     emitDeepLinks([url])
   })
 
-  app.on("before-quit", () => {
+  let quitCleanupStarted = false
+  app.on("before-quit", (event) => {
     setAppQuitting()
-    void stopSidecars()
-  })
-
-  app.on("will-quit", () => {
-    setAppQuitting()
-    void stopSidecars()
+    if (quitCleanupStarted) return
+    event.preventDefault()
+    quitCleanupStarted = true
+    void stopSidecars().finally(() => app.exit(0))
   })
 
   app.on("child-process-gone", (_event, details) => {
@@ -334,6 +339,12 @@ const main = Effect.gen(function* () {
 
     ensureLoopbackNoProxy()
     useEnvProxy()
+    const computer = yield* Effect.promise(() =>
+      startPrimeKitComputerMcp(() => currentPrimeKitAccessProfile() === "full_device", logger),
+    )
+    primeKitComputer = computer
+    // Runtime-only capability: never persist the ephemeral loopback token in a project config.
+    process.env.OPENCODE_CONFIG_CONTENT = getPrimeKitProviderConfig(computer.config)
 
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")
@@ -341,7 +352,7 @@ const main = Effect.gen(function* () {
       const bridge = yield* Effect.promise(() => startPrimeKitBridge(sidecar, logger))
       primeKitBridge = bridge
       yield* Deferred.succeed(serverReady, { url: bridge.url, username: bridge.username, password: bridge.password })
-      if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(sidecar, logger)
+      if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(sidecar, computer, logger)
 
       if (process.platform === "win32") {
         void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
@@ -406,7 +417,7 @@ const main = Effect.gen(function* () {
     const bridge = yield* Effect.promise(() => startPrimeKitBridge(localServer, logger))
     primeKitBridge = bridge
     yield* Deferred.succeed(serverReady, { url: bridge.url, username: bridge.username, password: bridge.password })
-    if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(localServer, logger)
+    if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(localServer, computer, logger)
 
     logger.log("loading task finished")
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)

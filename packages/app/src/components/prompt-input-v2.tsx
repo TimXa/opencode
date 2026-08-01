@@ -205,6 +205,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     onQueue: props.onQueue,
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
+    beforeFirstPrompt: props.beforeFirstPrompt,
     model: props.controls.model.selection,
   })
 

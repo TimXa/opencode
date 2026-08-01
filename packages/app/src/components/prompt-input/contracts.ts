@@ -54,4 +54,5 @@ export interface PromptInputProps {
   onQueue?: (draft: FollowupDraft) => void
   onAbort?: () => void
   onSubmit?: () => void
+  beforeFirstPrompt?: (sessionID: string) => Promise<void>
 }

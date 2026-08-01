@@ -2,6 +2,7 @@ import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
 import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity } from "./primekit-device"
 import { syncPrimeKitFolderGrants } from "./primekit-folders"
 import { currentPrimeKitAccessProfile, requestPrimeKitFullDeviceAccess } from "./primekit-access"
+import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-computer-mcp"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -118,7 +119,7 @@ async function configurePrimeKitProvider(
   await localRequest(server, `/instance/dispose?directory=${encodeURIComponent(root)}`, { method: "POST" })
 }
 
-export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
+export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitComputerMcp, logger: Logger) {
   const account = primeKitAccount
   const controller = new AbortController()
 
@@ -126,20 +127,38 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
     const root = await defaultPrimeKitWorkspace()
     const device = getPrimeKitDeviceIdentity()
     const access = await requestPrimeKitFullDeviceAccess()
-    const runtimePayload = (enabled = currentPrimeKitAccessProfile() === "full_device") => ({
+    let computerProbe: PrimeKitComputerProbe =
+      access === "full_device"
+        ? await computer.probe(true)
+        : { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
+    const runtimePayload = (enabled: boolean, probe: PrimeKitComputerProbe) => ({
       device_id: device.id,
       device_name: device.name,
       platform: device.platform,
       app_version: pkg.version,
-      capabilities: enabled ? ["agent_run", "read", "write", "patch", "shell", "full_device"] : [],
+      capabilities: enabled
+        ? [
+            "agent_run",
+            "read",
+            "write",
+            "patch",
+            "shell",
+            "full_device",
+            ...(probe.screen ? ["screenshot"] : []),
+            ...(probe.input ? ["ui_control"] : []),
+            ...(probe.screen && probe.input ? ["computer_use"] : []),
+          ]
+        : [],
       workspace_path: root,
       permission_summary: enabled
-        ? "Полный доступ подтверждён · файлы, Terminal и Git"
+        ? probe.screen && probe.input
+          ? "Полный доступ подтверждён · файлы, Terminal, Git и экран"
+          : `Файлы, Terminal и Git доступны · ${probe.reason ?? "Computer Use пока недоступен"}`
         : "Локальный агент отключён пользователем",
     })
     const runtime = await account.request<Runtime>("/desktop-agent/runtimes", {
       method: "POST",
-      body: JSON.stringify(runtimePayload(access === "full_device")),
+      body: JSON.stringify(runtimePayload(access === "full_device", computerProbe)),
     })
     let grantRoots = new Map<number, string>()
     if (access === "full_device") {
@@ -151,9 +170,12 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
     while (!controller.signal.aborted) {
       try {
         const enabled = currentPrimeKitAccessProfile() === "full_device"
+        computerProbe = enabled
+          ? await computer.probe(false)
+          : { enabled: false, screen: false, input: false, reason: "Полный доступ выключен" }
         await account.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
           method: "POST",
-          body: JSON.stringify(runtimePayload(enabled)),
+          body: JSON.stringify(runtimePayload(enabled, computerProbe)),
         })
         if (!enabled) {
           await delay(3_000)

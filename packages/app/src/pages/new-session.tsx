@@ -1,7 +1,12 @@
 import { createPromptProjectController } from "@/components/prompt-project-selector"
+import {
+  PrimeKitExecutionTarget,
+  primeKitChatID,
+  type PrimeKitExecutionTargetValue,
+} from "@/components/primekit-execution-target"
 import { useTitlebarRightMount } from "@/components/titlebar"
 import { useSettings } from "@/context/settings"
-import { createEffect, createResource } from "solid-js"
+import { createEffect, createResource, createSignal } from "solid-js"
 import { createNewSessionDraftController } from "./new-session/new-session-draft-controller"
 import { NewSessionStatus, NewSessionView } from "./new-session/new-session-view"
 import { createNewSessionWorkspaceController } from "./new-session/new-session-workspace-controller"
@@ -12,9 +17,22 @@ export default function NewSessionPage() {
   const settings = useSettings()
   const rightMount = useTitlebarRightMount()
   const workspace = createNewSessionWorkspaceController()
+  const [executionTarget, setExecutionTarget] = createSignal<PrimeKitExecutionTargetValue>({ kind: "cloud" })
   const draft = createNewSessionDraftController({
     worktree: workspace.selection.value,
     resetWorktree: workspace.selection.reset,
+    beforeFirstPrompt: async (sessionID) => {
+      const target = executionTarget()
+      if (target.kind === "cloud") return
+      const api = window.api?.primekit
+      const id = primeKitChatID(sessionID)
+      if (!api || !id) throw new Error("Не удалось определить облачный чат")
+      const options = await api.executionOptions()
+      const runtime = options.runtimes.find((item) => item.id === target.runtime_id)
+      const grant = options.grants.find((item) => item.id === target.folder_grant_id)
+      if (runtime?.status !== "online" || !grant?.active) throw new Error("Выбранное устройство сейчас не в сети")
+      await api.setExecutionTarget(id, target)
+    },
   })
   const project = createPromptProjectController({
     controls: draft.project.controls,
@@ -42,7 +60,12 @@ export default function NewSessionPage() {
       {suspendUntilPromptReady()}
       <NewSessionStatus mount={rightMount} visible={settings.visibility.status} />
       <div class="flex-1 min-h-0 flex flex-col gap-2 p-2">
-        <NewSessionView input={draft.input} project={project} workspace={workspace} />
+        <NewSessionView
+          input={draft.input}
+          project={project}
+          workspace={workspace}
+          executionTargetControl={<PrimeKitExecutionTarget value={executionTarget()} onChange={setExecutionTarget} />}
+        />
       </div>
     </div>
   )
