@@ -19,6 +19,7 @@ jobs:
     env:
       OPENCODE_CHANNEL: prod
       OPENCODE_VERSION: 1.18.17
+      PRIMEKIT_UNSIGNED_QA: "1"
       RUST_TARGET: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
@@ -64,6 +65,16 @@ jobs:
           foreach ($file in @('cua_driver_node_runtime.node', 'cua_driver_sdk.dll', 'node-runtime-NOTICE.md')) {
             $path = Join-Path $cua $file
             if (-not (Test-Path $path)) { throw "Missing packaged Computer Use runtime: $path" }
+          }
+          $requiredNative = @(
+            'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@lydell/node-pty-win32-x64/prebuilds/win32-x64/conpty.node',
+            'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@lydell/node-pty-win32-x64/prebuilds/win32-x64/conpty/conpty.dll',
+            'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@parcel/watcher-win32-x64/watcher.node',
+            'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@ubjs/node-win32-x64-msvc/uniffi-runtime-napi.win32-x64-msvc.node',
+            'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.napi.node'
+          )
+          foreach ($path in $requiredNative) {
+            if (-not (Test-Path $path)) { throw "Missing Windows native runtime: $path" }
           }
           $signature = Get-AuthenticodeSignature $installer
           if ($signature.Status -notin @('NotSigned', 'UnknownError')) {
