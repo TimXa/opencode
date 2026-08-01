@@ -1,6 +1,7 @@
 import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
 import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity } from "./primekit-device"
 import { syncPrimeKitFolderGrants } from "./primekit-folders"
+import { currentPrimeKitAccessProfile, requestPrimeKitFullDeviceAccess } from "./primekit-access"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -124,29 +125,40 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
   const connect = async () => {
     const root = await defaultPrimeKitWorkspace()
     const device = getPrimeKitDeviceIdentity()
-    const runtimePayload = {
+    const access = await requestPrimeKitFullDeviceAccess()
+    const runtimePayload = (enabled = currentPrimeKitAccessProfile() === "full_device") => ({
       device_id: device.id,
       device_name: device.name,
       platform: device.platform,
       app_version: pkg.version,
-      capabilities: ["agent_run", "read", "write", "patch", "shell"],
+      capabilities: enabled ? ["agent_run", "read", "write", "patch", "shell", "full_device"] : [],
       workspace_path: root,
-      permission_summary: "Разрешения Кита · локальная папка проекта",
-    }
+      permission_summary: enabled
+        ? "Полный доступ подтверждён · файлы, Terminal и Git"
+        : "Локальный агент отключён пользователем",
+    })
     const runtime = await account.request<Runtime>("/desktop-agent/runtimes", {
       method: "POST",
-      body: JSON.stringify(runtimePayload),
+      body: JSON.stringify(runtimePayload(access === "full_device")),
     })
-    let grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
-    await configurePrimeKitProvider(server, account, root)
+    let grantRoots = new Map<number, string>()
+    if (access === "full_device") {
+      grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
+      await configurePrimeKitProvider(server, account, root)
+    }
     logger.log("PrimeKit connector online", { runtimeID: runtime.id, platform: device.platform, workspace: root })
 
     while (!controller.signal.aborted) {
       try {
+        const enabled = currentPrimeKitAccessProfile() === "full_device"
         await account.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
           method: "POST",
-          body: JSON.stringify(runtimePayload),
+          body: JSON.stringify(runtimePayload(enabled)),
         })
+        if (!enabled) {
+          await delay(3_000)
+          continue
+        }
         grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
         const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands`)
         for (const command of commands) await execute(command, grantRoots, root, server, account, logger)

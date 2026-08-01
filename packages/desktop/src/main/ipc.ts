@@ -16,6 +16,7 @@ import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { primeKitAccount } from "./primekit-account"
 import { authorizePrimeKitFolder, syncPrimeKitFolderGrants } from "./primekit-folders"
 import { getPrimeKitDeviceIdentity } from "./primekit-device"
+import { requestPrimeKitFullDeviceAccess } from "./primekit-access"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -75,6 +76,8 @@ export function registerIpcHandlers(deps: Deps) {
       }),
   )
   ipcMain.handle("primekit-execution-folder-authorize", async (_event, path: string) => {
+    const access = await requestPrimeKitFullDeviceAccess(true)
+    if (access !== "full_device") throw new Error("Полный доступ к этому компьютеру не включён")
     const root = await authorizePrimeKitFolder(path)
     const device = getPrimeKitDeviceIdentity()
     const runtimes = await primeKitAccount.request<Array<{ id: number; device_id: string }>>("/desktop-agent/runtimes")
