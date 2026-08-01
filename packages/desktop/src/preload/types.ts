@@ -86,6 +86,7 @@ export type ElectronAPI = {
     verifyEmailCode: (email: string, code: string) => Promise<PrimeKitAccountState["user"]>
     logout: () => Promise<void>
     requestComputerAccess: () => Promise<PrimeKitComputerAccess>
+    reconnectDevice: () => Promise<{ status: "reconnecting" }>
     executionOptions: () => Promise<{ runtimes: PrimeKitRuntime[]; grants: PrimeKitFolderGrant[] }>
     executionTarget: (chatID: number) => Promise<PrimeKitExecutionTarget>
     setExecutionTarget: (

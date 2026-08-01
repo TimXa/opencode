@@ -286,6 +286,7 @@ declare global {
           input: boolean
           reason?: string
         }>
+        reconnectDevice: () => Promise<{ status: "reconnecting" }>
         executionOptions: () => Promise<{
           runtimes: Array<{
             id: number

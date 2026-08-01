@@ -1,13 +1,18 @@
-import { For, Show, createResource, createSignal } from "solid-js"
+import { For, Show, createResource, createSignal, onCleanup } from "solid-js"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 
 export function SettingsPrimeKitAccount() {
   const [account] = createResource(() => window.api?.primekit?.state())
-  const [devices] = createResource(() => window.api?.primekit?.executionOptions())
+  const [devices, { refetch: refetchDevices }] = createResource(() => window.api?.primekit?.executionOptions())
   const [computerStatus, setComputerStatus] = createSignal<string>()
   const [checking, setChecking] = createSignal(false)
+  const [reconnecting, setReconnecting] = createSignal(false)
+  const [reconnectStatus, setReconnectStatus] = createSignal<string>()
+
+  const refreshTimer = window.setInterval(() => void refetchDevices(), 5_000)
+  onCleanup(() => window.clearInterval(refreshTimer))
 
   const logout = async () => {
     await window.api?.primekit?.logout()
@@ -25,6 +30,24 @@ export function SettingsPrimeKitAccount() {
       )
     } finally {
       setChecking(false)
+    }
+  }
+
+  const reconnectDevice = async () => {
+    const confirmed = window.confirm(
+      "Переподключить этот компьютер? Активная локальная задача остановится, а привязанные к нему чаты временно перейдут в облако.",
+    )
+    if (!confirmed) return
+    setReconnecting(true)
+    setReconnectStatus(undefined)
+    try {
+      await window.api?.primekit?.reconnectDevice()
+      setReconnectStatus("Переподключаем компьютер. Он появится в сети в течение 30 секунд.")
+      await refetchDevices()
+    } catch (error) {
+      setReconnectStatus(error instanceof Error ? error.message : "Не удалось переподключить компьютер")
+    } finally {
+      setReconnecting(false)
     }
   }
 
@@ -50,6 +73,21 @@ export function SettingsPrimeKitAccount() {
         >
           <ButtonV2 size="normal" variant="neutral" disabled={checking()} onClick={() => void checkComputerAccess()}>
             {checking() ? "Проверяю…" : "Проверить доступ"}
+          </ButtonV2>
+        </SettingsRowV2>
+        <SettingsRowV2
+          title="Связь с этим компьютером"
+          description={
+            reconnectStatus() || "Используйте только если устройство застряло в переподключении или потеряло привязку."
+          }
+        >
+          <ButtonV2
+            size="normal"
+            variant="neutral"
+            disabled={reconnecting()}
+            onClick={() => void reconnectDevice()}
+          >
+            {reconnecting() ? "Переподключаю…" : "Переподключить"}
           </ButtonV2>
         </SettingsRowV2>
       </SettingsListV2>

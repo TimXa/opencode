@@ -74,6 +74,16 @@ export function writePrimeKitDeviceCredential(credential: PrimeKitDeviceCredenti
   renameSync(temporary, path)
 }
 
+export function clearPrimeKitDeviceCredential() {
+  for (const encrypted of [true, false]) {
+    try {
+      unlinkSync(deviceCredentialPath(encrypted))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+}
+
 export type PrimeKitPlatform = "macos" | "windows" | "linux"
 
 export function primeKitPlatform(platform = process.platform): PrimeKitPlatform {

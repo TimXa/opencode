@@ -15,7 +15,11 @@ import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { primeKitAccount } from "./primekit-account"
 import { authorizePrimeKitFolder, syncPrimeKitFolderGrants } from "./primekit-folders"
-import { getPrimeKitDeviceIdentity } from "./primekit-device"
+import {
+  clearPrimeKitDeviceCredential,
+  getPrimeKitDeviceIdentity,
+  readPrimeKitDeviceCredential,
+} from "./primekit-device"
 import { requestPrimeKitFullDeviceAccess } from "./primekit-access"
 import { setPrimeKitComputerPermissionState } from "./primekit-access"
 import type { PrimeKitComputerProbe } from "./primekit-computer-mcp"
@@ -77,6 +81,21 @@ export function registerIpcHandlers(deps: Deps) {
       primeKitAccount.request("/desktop-agent/folder-grants"),
     ])
     return { runtimes, grants }
+  })
+  ipcMain.handle("primekit-device-reconnect", async () => {
+    const device = getPrimeKitDeviceIdentity()
+    const saved = readPrimeKitDeviceCredential(device.id)
+    const runtimes = await primeKitAccount.request<Array<{ id: number; device_id: string }>>(
+      "/desktop-agent/runtimes",
+    )
+    const current = runtimes.filter(
+      (runtime) => runtime.device_id === device.id || (saved && runtime.id === saved.runtime_id),
+    )
+    for (const runtime of current) {
+      await primeKitAccount.request(`/desktop-agent/runtimes/${runtime.id}`, { method: "DELETE" })
+    }
+    clearPrimeKitDeviceCredential()
+    return { status: "reconnecting" as const }
   })
   ipcMain.handle("primekit-execution-target", (_event, chatID: number) =>
     primeKitAccount.request(`/desktop-agent/chats/${chatID}/target`),
