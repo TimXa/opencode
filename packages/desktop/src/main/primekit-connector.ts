@@ -343,6 +343,13 @@ async function execute(
       method: "POST",
       body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
     })
+  const gateway = await account.request<{ configured: boolean; model: string }>("/v1/gateway/status")
+  if (!gateway.configured) {
+    const message = "Модельный шлюз PrimeKit не настроен на сервере"
+    await event("error", { message }).catch(() => undefined)
+    await finish(account, command, "error", undefined, message)
+    return
+  }
   await event("progress", { message: "Кит запустил локального агента", workspace: root }).catch(() => undefined)
   try {
     let localSessionID = command.local_session_id ?? rememberedSession(command.id, root)
