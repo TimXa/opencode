@@ -48,9 +48,12 @@ export type PrimeKitAccountState = {
 
 export type PrimeKitRuntime = {
   id: number
+  device_id: string
   device_name: string
   platform: string
   status: "online" | "offline"
+  capabilities: string[]
+  permission_summary?: string | null
 }
 export type PrimeKitFolderGrant = {
   id: number
@@ -58,6 +61,7 @@ export type PrimeKitFolderGrant = {
   display_name: string
   root_path_display: string
   active: boolean
+  capabilities: string[]
 }
 export type PrimeKitExecutionTarget = {
   kind: "cloud" | "desktop"

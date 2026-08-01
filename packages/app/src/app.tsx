@@ -269,7 +269,11 @@ declare global {
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
       exportDebugLogs?: () => Promise<string>
-      openDirectoryPicker: (opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => Promise<string | string[] | null>
+      openDirectoryPicker: (opts?: {
+        multiple?: boolean
+        title?: string
+        defaultPath?: string
+      }) => Promise<string | string[] | null>
       primekit?: {
         state: () => Promise<{
           signedIn: boolean
@@ -279,10 +283,12 @@ declare global {
         executionOptions: () => Promise<{
           runtimes: Array<{
             id: number
+            device_id: string
             device_name: string
             platform: string
             status: "online" | "offline"
             capabilities: string[]
+            permission_summary?: string | null
           }>
           grants: Array<{
             id: number

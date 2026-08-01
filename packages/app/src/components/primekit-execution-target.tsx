@@ -65,6 +65,11 @@ export function PrimeKitExecutionTarget(props: Props) {
     if (!value || value.kind === "cloud") return "Облако"
     return `${value.runtime_name ?? "Устройство"} · ${value.folder_name ?? "Папка"}`
   })
+  const runtimeStatus = (runtime: { status: string; capabilities: string[]; permission_summary?: string | null }) => {
+    if (runtime.status !== "online") return "Не в сети"
+    if (!runtime.capabilities.includes("agent_run")) return runtime.permission_summary || "Локальный агент выключен"
+    return runtime.permission_summary || "Файлы, Terminal и Git доступны"
+  }
   const selectCloud = async () => {
     if ("onChange" in props) {
       props.onChange({ kind: "cloud" })
@@ -108,10 +113,16 @@ export function PrimeKitExecutionTarget(props: Props) {
     <Show when={window.api?.primekit && (id() || controlled())}>
       <MenuV2 placement="top-start" gutter={4}>
         <MenuV2.Trigger class="flex h-7 min-w-0 max-w-[260px] items-center gap-1.5 rounded-sm px-1.5 text-[13px] hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none data-[expanded]:bg-v2-overlay-simple-overlay-pressed">
-          <IconV2 name={selected()?.kind === "desktop" ? "monitor" : "cloud"} class="shrink-0 text-v2-icon-icon-muted" />
+          <IconV2
+            name={selected()?.kind === "desktop" ? "monitor" : "cloud"}
+            class="shrink-0 text-v2-icon-icon-muted"
+          />
           <span class="min-w-0 truncate">{label()}</span>
           <Show when={selectedDesktop() && !selectedDesktop()?.available}>
-            <span class="size-1.5 shrink-0 rounded-full bg-v2-icon-icon-critical-base" aria-label="Устройство недоступно" />
+            <span
+              class="size-1.5 shrink-0 rounded-full bg-v2-icon-icon-critical-base"
+              aria-label="Устройство недоступно"
+            />
           </Show>
           <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
         </MenuV2.Trigger>
@@ -122,33 +133,65 @@ export function PrimeKitExecutionTarget(props: Props) {
               <MenuV2.Item onSelect={() => void selectCloud()}>
                 <IconV2 name="cloud" />
                 <span class="min-w-0 flex-1 truncate">Облако</span>
-                <Show when={selected()?.kind === "cloud"}><Icon name="check" size="small" /></Show>
+                <Show when={selected()?.kind === "cloud"}>
+                  <Icon name="check" size="small" />
+                </Show>
               </MenuV2.Item>
             </MenuV2.Group>
             <MenuV2.Separator />
             <MenuV2.Group>
-              <For each={options()?.grants.filter((grant) => grant.active)}>
-                {(grant) => {
-                  const runtime = () => options()?.runtimes.find((item) => item.id === grant.runtime_id)
-                  const available = () => runtimeReady(runtime()) && grantReady(grant, runtime()?.id)
+              <For each={options()?.runtimes}>
+                {(runtime) => {
+                  const grants = () =>
+                    options()?.grants.filter((grant) => grant.active && grant.runtime_id === runtime.id) ?? []
                   return (
-                    <MenuV2.Item disabled={!available()} onSelect={() => void selectDesktop(grant.runtime_id, grant.id)}>
-                      <IconV2 name="monitor" />
-                      <span class="min-w-0 flex-1">
-                        <span class="block truncate">{runtime()?.device_name ?? "Устройство"}</span>
-                        <span class="block truncate text-[11px] text-v2-text-text-faint">
-                          {grant.display_name}{available() ? "" : " · недоступно"}
-                        </span>
-                      </span>
-                      <Show when={selectedDesktop()?.runtime_id === grant.runtime_id && selectedDesktop()?.folder_grant_id === grant.id}>
-                        <Icon name="check" size="small" />
+                    <>
+                      <Show when={grants().length === 0}>
+                        <MenuV2.Item disabled>
+                          <IconV2 name="monitor" />
+                          <span class="min-w-0 flex-1">
+                            <span class="block truncate">{runtime.device_name}</span>
+                            <span class="block truncate text-[11px] text-v2-text-text-faint">
+                              {runtimeStatus(runtime)} · папка не подключена
+                            </span>
+                          </span>
+                        </MenuV2.Item>
                       </Show>
-                    </MenuV2.Item>
+                      <For each={grants()}>
+                        {(grant) => {
+                          const available = () => runtimeReady(runtime) && grantReady(grant, runtime.id)
+                          return (
+                            <MenuV2.Item
+                              disabled={!available()}
+                              onSelect={() => void selectDesktop(runtime.id, grant.id)}
+                            >
+                              <IconV2 name="monitor" />
+                              <span class="min-w-0 flex-1">
+                                <span class="block truncate">{runtime.device_name}</span>
+                                <span class="block truncate text-[11px] text-v2-text-text-faint">
+                                  {grant.display_name} · {runtimeStatus(runtime)}
+                                </span>
+                              </span>
+                              <Show
+                                when={
+                                  selectedDesktop()?.runtime_id === runtime.id &&
+                                  selectedDesktop()?.folder_grant_id === grant.id
+                                }
+                              >
+                                <Icon name="check" size="small" />
+                              </Show>
+                            </MenuV2.Item>
+                          )
+                        }}
+                      </For>
+                    </>
                   )
                 }}
               </For>
-              <Show when={!options.loading && !options()?.grants.some((grant) => grant.active)}>
-                <div class="px-3 py-2 text-[12px] text-v2-text-text-faint">Откройте папку в приложении на Mac или Windows.</div>
+              <Show when={!options.loading && !options()?.runtimes.length}>
+                <div class="px-3 py-2 text-[12px] text-v2-text-text-faint">
+                  Откройте приложение Кит на Mac или Windows.
+                </div>
               </Show>
             </MenuV2.Group>
             <MenuV2.Separator />
