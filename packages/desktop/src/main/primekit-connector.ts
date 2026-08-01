@@ -5,6 +5,7 @@ import { currentPrimeKitAccessProfile, requestPrimeKitFullDeviceAccess } from ".
 import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-computer-mcp"
 import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
+import { mirrorLocalAgentEvents, type MirroredPart } from "./primekit-command-events"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -316,10 +317,19 @@ async function execute(
     return
   }
 
-  const existingEvents = await account.request<CommandEvent[]>(
-    `/desktop-agent/commands/${command.id}/events?after=-1&limit=500`,
-  )
-  let eventIndex = existingEvents.reduce((maximum, item) => Math.max(maximum, item.event_index), -1) + 1
+  let previousEventIndex = -1
+  while (true) {
+    const existingEvents = await account.request<CommandEvent[]>(
+      `/desktop-agent/commands/${command.id}/events?after=${previousEventIndex}&limit=500`,
+    )
+    if (existingEvents.length === 0) break
+    previousEventIndex = existingEvents.reduce(
+      (maximum, item) => Math.max(maximum, item.event_index),
+      previousEventIndex,
+    )
+    if (existingEvents.length < 500) break
+  }
+  let eventIndex = previousEventIndex + 1
   const event = (type: string, payload: Record<string, unknown>) =>
     account.request(`/desktop-agent/commands/${command.id}/events`, {
       method: "POST",
@@ -367,6 +377,7 @@ async function execute(
     const model = activeModel()
     logger.log("PrimeKit local agent selected", model)
     const localMessageID = `msg_pk_cmd_${command.id}`
+    const mirroredParts = new Map<string, MirroredPart>()
     const existingMessages = await localRequest<Array<{ info?: { id?: string } }>>(
       server,
       `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
@@ -415,6 +426,7 @@ async function execute(
         server,
         `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
       )
+      await mirrorLocalAgentEvents(messages, localMessageID, mirroredParts, event)
       assistantText = textFromMessages(messages, localMessageID)
       if (!status && assistantText) break
       await delay(1_000)
