@@ -1,8 +1,11 @@
-import { safeStorage } from "electron"
+import { app } from "electron"
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { getStore, removeStoreFileIfEmpty } from "./store"
 
 const STORE = "primekit.account.dat"
 const KEY = "tokens"
+const SESSION_FILE = "primekit.session.json"
 
 type AuthTokens = { access_token: string; refresh_token: string }
 export type PrimeKitUser = {
@@ -13,30 +16,52 @@ export type PrimeKitUser = {
 }
 
 function readTokens(): AuthTokens | undefined {
-  const encrypted = getStore(STORE).get(KEY)
-  if (typeof encrypted !== "string" || !encrypted) return
-  if (!safeStorage.isEncryptionAvailable()) return
+  // ponytail: ad-hoc development signatures change between builds, so macOS Keychain
+  // repeatedly asks the user to trust the rebuilt app. Keep this local session
+  // file owner-only until release builds use a stable Developer ID signature.
+  getStore(STORE).delete(KEY)
+  void removeStoreFileIfEmpty(STORE)
   try {
-    return JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, "base64"))) as AuthTokens
+    const value = JSON.parse(readFileSync(join(app.getPath("userData"), SESSION_FILE), "utf8")) as AuthTokens
+    if (typeof value.access_token !== "string" || typeof value.refresh_token !== "string") return
+    return value
   } catch {
     return
   }
 }
 
 function writeTokens(tokens: AuthTokens) {
-  if (!safeStorage.isEncryptionAvailable()) throw new Error("Защищённое хранилище macOS недоступно")
-  const encrypted = safeStorage.encryptString(JSON.stringify(tokens)).toString("base64")
-  getStore(STORE).set(KEY, encrypted)
+  const directory = app.getPath("userData")
+  const path = join(directory, SESSION_FILE)
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(path, `${JSON.stringify(tokens)}\n`, { mode: 0o600 })
+  chmodSync(path, 0o600)
 }
 
 function clearTokens() {
+  try {
+    unlinkSync(join(app.getPath("userData"), SESSION_FILE))
+  } catch {}
   getStore(STORE).delete(KEY)
   void removeStoreFileIfEmpty(STORE)
 }
 
 async function errorMessage(response: Response) {
   const body = await response.json().catch(() => undefined)
-  if (body && typeof body === "object" && "detail" in body && typeof body.detail === "string") return body.detail
+  if (body && typeof body === "object" && "detail" in body) {
+    const responseDetail = (body as { detail?: unknown }).detail
+    if (typeof responseDetail === "string") return responseDetail
+    if (Array.isArray(responseDetail)) {
+      return responseDetail
+        .map((item: unknown) => {
+          if (!item || typeof item !== "object") return String(item)
+          const detail = item as { loc?: unknown[]; msg?: string }
+          const field = detail.loc?.filter((part) => part !== "body").join(".")
+          return field ? `${field}: ${detail.msg ?? "Некорректное значение"}` : (detail.msg ?? "Некорректное значение")
+        })
+        .join("; ")
+    }
+  }
   return `PrimeKit вернул ошибку ${response.status}`
 }
 
@@ -64,14 +89,17 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
   const open = async (path: string, init: RequestInit = {}) => {
     const current = load()
     if (!current?.access_token) throw new Error("Войдите в аккаунт PrimeKit")
+    const headers = new Headers(init.headers)
+    headers.set("authorization", `Bearer ${current.access_token}`)
     const send = () =>
       fetch(`${baseURL}${path}`, {
         ...init,
-        headers: { authorization: `Bearer ${tokens!.access_token}`, ...init.headers },
+        headers,
       })
     let response = await send()
     if (response.status === 401) {
       await refresh()
+      headers.set("authorization", `Bearer ${tokens!.access_token}`)
       response = await send()
     }
     return response

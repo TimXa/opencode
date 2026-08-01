@@ -252,6 +252,13 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
 
   const http = createServer(async (request, response) => {
     try {
+      response.setHeader("access-control-allow-origin", "oc://renderer")
+      response.setHeader("access-control-allow-methods", "GET, HEAD, POST, PATCH, DELETE, OPTIONS")
+      response.setHeader("access-control-allow-headers", "authorization, content-type")
+      if (request.method === "OPTIONS") {
+        response.statusCode = 204
+        return response.end()
+      }
       if (request.headers.authorization !== basic(sidecar)) return json(response, 401, { error: "Unauthorized" })
       const url = new URL(request.url ?? "/", "http://127.0.0.1")
       if (url.pathname === "/global/event") {

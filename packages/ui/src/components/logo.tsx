@@ -33,6 +33,41 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
   )
 }
 
+export const KitOrbit = (props: { class?: string }) => {
+  return (
+    <svg class={props.class} data-component="kit-orbit" viewBox="0 0 300 300" fill="none" aria-hidden="true">
+      <defs>
+        <path id="kit-orbit-path" d="M260 150a110 35 0 0 1-220 0 110 35 0 0 1 220 0" />
+        <g id="kit-orbit-file">
+          <path d="M-12-16H4l8 8v24h-24z" fill="var(--kit-orbit-page)" stroke="currentColor" stroke-width="4" stroke-linejoin="round" />
+          <path d="M4-16v8h8" stroke="currentColor" stroke-width="4" stroke-linejoin="round" />
+        </g>
+        <clipPath id="kit-orbit-top"><rect width="300" height="150" /></clipPath>
+        <mask id="kit-orbit-mask">
+          <rect width="300" height="300" fill="white" />
+          <g clip-path="url(#kit-orbit-top)" fill="black" stroke="black" stroke-width="9" stroke-linejoin="round">
+            <path d="M100 112.5v62.5l50 25 50-25v-62.5" />
+            <path d="m75 137.5 75-37.5 75 37.5" />
+          </g>
+        </mask>
+      </defs>
+      <g class="kit-orbit-body">
+        <path class="kit-orbit-contour" d="M100 175V85l25 27.5M200 175V85l-25 27.5M75 137.5 150 100l75 37.5M100 175l50 25 50-25" />
+        <g class="kit-orbit-eyes">
+          <path class="kit-orbit-contour kit-orbit-blink" d="M125 145v13M175 145v13" />
+        </g>
+        <path class="kit-orbit-nose" d="m144 166h12l-6 7z" />
+      </g>
+      <g mask="url(#kit-orbit-mask)">
+        <use href="#kit-orbit-path" class="kit-orbit-trail" />
+        <g class="kit-orbit-file kit-orbit-file-one"><use href="#kit-orbit-file" /></g>
+        <g class="kit-orbit-file kit-orbit-file-two"><use href="#kit-orbit-file" /></g>
+        <g class="kit-orbit-file kit-orbit-file-three"><use href="#kit-orbit-file" /></g>
+      </g>
+    </svg>
+  )
+}
+
 export const Logo = (props: { class?: string }) => {
   return (
     <svg

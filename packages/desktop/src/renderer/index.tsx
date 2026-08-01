@@ -28,13 +28,15 @@ import { resetZoom, setPinchZoomEnabled, webviewZoom, zoomIn, zoomOut } from "./
 import { windowFullscreen } from "./window-fullscreen"
 import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
-import { Splash } from "@opencode-ai/ui/logo"
+import { KitOrbit, Splash } from "@opencode-ai/ui/logo"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
   throw new Error(t("error.dev.rootNotFound"))
 }
+
+if (!localStorage.getItem("opencode-color-scheme")) localStorage.setItem("opencode-color-scheme", "dark")
 
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
@@ -325,19 +327,37 @@ window.api.onMenuCommand((id) => {
 listenForDeepLinks()
 
 function LoadingSplash() {
+  const tips = [
+    "Нужен быстрый ответ? В меню «+» выберите более высокую скорость.",
+    "Сложная задача? Повышенный режим мышления помогает Киту тщательнее проверить решение.",
+    "Прикрепите исходный файл — так Кит точнее сохранит структуру и оформление.",
+    "Для работы с файлами выберите папку проекта и оставьте Mac включённым.",
+    "Если направление неверное, остановите задачу и уточните ожидаемый результат.",
+  ]
+  const [tip, setTip] = createSignal(0)
+  onMount(() => {
+    const timer = setInterval(() => setTip((value) => (value + 1) % tips.length), 5_500)
+    onCleanup(() => clearInterval(timer))
+  })
   return (
-    <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
-      <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+    <div class="kit-loading-screen">
+      <KitOrbit class="kit-loading-orbit" />
+      <p class="kit-loading-title">Кит подключается</p>
+      <p class="kit-loading-tip" aria-live="off"><Show when={tips[tip()]} keyed>{(text) => <span>{text}</span>}</Show></p>
     </div>
   )
 }
 
-function PrimeKitLogin(props: { onSignedIn: () => void }) {
+function PrimeKitLogin(props: { onSignedIn: () => Promise<unknown> | void }) {
   const [email, setEmail] = createSignal("")
   const [code, setCode] = createSignal("")
   const [step, setStep] = createSignal<"email" | "code">("email")
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal("")
+  const readableError = (cause: unknown) => {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    return message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "") || "Не удалось войти"
+  }
 
   const submit = async (event: SubmitEvent) => {
     event.preventDefault()
@@ -349,22 +369,41 @@ function PrimeKitLogin(props: { onSignedIn: () => void }) {
         setStep("code")
       } else {
         await window.api.primekit.verifyEmailCode(email().trim(), code().trim())
-        props.onSignedIn()
+        if ("startViewTransition" in document) {
+          document.startViewTransition(() => props.onSignedIn())
+        } else {
+          await props.onSignedIn()
+        }
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось войти")
+      setError(readableError(cause))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <main class="h-dvh w-screen flex items-center justify-center bg-background-base px-6">
-      <form onSubmit={submit} class="w-full max-w-[380px] rounded-2xl border border-border-weak-base bg-background-stronger p-7 shadow-lg">
-        <Splash class="w-12 h-14 mb-5" />
-        <h1 class="text-2xl font-medium text-text-strong mb-2">Вход в Кит</h1>
-        <p class="text-sm text-text-weak mb-6">
-          Ваши чаты на сайте, Mac и iPhone будут доступны в одном аккаунте.
+    <main class="kit-auth-shell">
+      <section class="kit-auth-story" aria-label="Возможности Кита">
+        <div class="kit-auth-glow" />
+        <div class="kit-auth-story-content">
+          <Splash class="kit-auth-logo" />
+          <h1>Один Кит.<br />Все ваши устройства.</h1>
+          <p>Продолжайте чаты с сайта на Mac и разрешайте Киту работать с файлами на этом компьютере.</p>
+          <div class="kit-auth-steps">
+            <div class="is-active"><span>1</span><strong>Войдите</strong><small>В тот же аккаунт, что и на сайте</small></div>
+            <div><span>2</span><strong>Выберите папку</strong><small>Кит увидит только разрешённые файлы</small></div>
+            <div><span>3</span><strong>Начните задачу</strong><small>С Mac, iPhone или браузера</small></div>
+          </div>
+        </div>
+      </section>
+      <form onSubmit={submit} class="kit-auth-form">
+        <div class="kit-auth-form-inner" classList={{ "is-code": step() === "code" }}>
+        <Splash class="kit-auth-mobile-logo" />
+        <p class="kit-auth-eyebrow">PRIMEKIT ДЛЯ MAC</p>
+        <h2>{step() === "email" ? "Вход в Кит" : "Проверьте почту"}</h2>
+        <p class="kit-auth-copy">
+          {step() === "email" ? "Ваши чаты и память будут доступны на всех устройствах." : `Мы отправили шестизначный код на ${email()}`}
         </p>
         <label class="block text-sm text-text-base mb-2" for="primekit-email">Email</label>
         <input
@@ -372,10 +411,12 @@ function PrimeKitLogin(props: { onSignedIn: () => void }) {
           type="email"
           autocomplete="email"
           required
+          aria-invalid={Boolean(error())}
+          aria-describedby={error() ? "primekit-auth-error" : undefined}
           disabled={step() === "code" || busy()}
           value={email()}
           onInput={(event) => setEmail(event.currentTarget.value)}
-          class="w-full h-11 rounded-lg border border-border-base bg-background-base px-3 text-text-strong outline-none focus:border-border-strong"
+          class="kit-auth-input"
         />
         <Show when={step() === "code"}>
           <label class="block text-sm text-text-base mb-2 mt-4" for="primekit-code">Код из письма</label>
@@ -384,25 +425,29 @@ function PrimeKitLogin(props: { onSignedIn: () => void }) {
             inputmode="numeric"
             autocomplete="one-time-code"
             required
+            aria-invalid={Boolean(error())}
+            aria-describedby={error() ? "primekit-auth-error" : undefined}
             autofocus
             value={code()}
             onInput={(event) => setCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-            class="w-full h-11 rounded-lg border border-border-base bg-background-base px-3 text-text-strong tracking-[0.3em] outline-none focus:border-border-strong"
+            class="kit-auth-input kit-auth-code"
           />
         </Show>
-        <Show when={error()}>{(message) => <p class="mt-4 text-sm text-red-500">{message()}</p>}</Show>
+        <Show when={error()}>{(message) => <p id="primekit-auth-error" class="kit-auth-error" role="alert">{message()}</p>}</Show>
         <button
           type="submit"
           disabled={busy()}
-          class="w-full h-11 mt-6 rounded-lg bg-text-strong text-background-base font-medium disabled:opacity-50"
+          class="kit-auth-submit"
         >
           {busy() ? "Подождите…" : step() === "email" ? "Получить код" : "Войти"}
         </button>
         <Show when={step() === "code"}>
-          <button type="button" class="w-full mt-3 text-sm text-text-weak" onClick={() => setStep("email")}>
+          <button type="button" class="kit-auth-back" onClick={() => setStep("email")}>
             Изменить email
           </button>
         </Show>
+        <p class="kit-auth-legal">Входя, вы подключаете этот Mac к своему аккаунту PrimeKit.</p>
+        </div>
       </form>
     </main>
   )
@@ -472,7 +517,7 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
       const list: ServerConnection.Any[] = []
       if (data) {
         list.push({
-          displayName: "Local Server",
+          displayName: "Кит",
           type: "sidecar",
           variant: "base",
           http: {
@@ -520,15 +565,15 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
   })
 
   return (
-    <Show when={!account.loading} fallback={<LoadingSplash />}>
-      <Show when={account()?.signedIn} fallback={<PrimeKitLogin onSignedIn={() => void refetchAccount()} />}>
-        <PlatformProvider value={platform}>
-          <AppBaseProviders locale={locale.latest}>
+    <PlatformProvider value={platform}>
+      <AppBaseProviders locale={locale.latest}>
+        <Show when={!account.loading} fallback={<LoadingSplash />}>
+          <Show when={account()?.signedIn} fallback={<PrimeKitLogin onSignedIn={async () => { await refetchAccount() }} />}>
             <App />
-          </AppBaseProviders>
-        </PlatformProvider>
-      </Show>
-    </Show>
+          </Show>
+        </Show>
+      </AppBaseProviders>
+    </PlatformProvider>
   )
 }
 

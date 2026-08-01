@@ -1,6 +1,9 @@
 ;(function () {
+  var script = document.currentScript
+  var defaultTheme = script && script.dataset.defaultTheme || "oc-2"
+  var defaultScheme = script && script.dataset.defaultScheme || "system"
   var key = "opencode-theme-id"
-  var themeId = localStorage.getItem(key) || "oc-2"
+  var themeId = localStorage.getItem(key) || defaultTheme
 
   if (themeId === "oc-1") {
     themeId = "oc-2"
@@ -9,7 +12,7 @@
     localStorage.removeItem("opencode-theme-css-dark")
   }
 
-  var scheme = localStorage.getItem("opencode-color-scheme") || "system"
+  var scheme = localStorage.getItem("opencode-color-scheme") || defaultScheme
   var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
   var mode = isDark ? "dark" : "light"
 

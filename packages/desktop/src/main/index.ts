@@ -199,6 +199,8 @@ const main = Effect.gen(function* () {
 
   ensureLoopbackNoProxy()
   useEnvProxy()
+  // ponytail: ad-hoc builds cannot keep a stable macOS Keychain ACL; Kit auth is stored separately.
+  if (process.platform === "darwin") app.commandLine.appendSwitch("use-mock-keychain")
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
   const features = app.commandLine.getSwitchValue("enable-features")
   app.commandLine.appendSwitch("enable-features", features ? `${jsCallStackFeature},${features}` : jsCallStackFeature)

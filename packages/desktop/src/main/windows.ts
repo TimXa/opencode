@@ -97,7 +97,7 @@ function tone() {
 }
 
 function defaultBackgroundColor() {
-  return primekitBackground[tone()]
+  return primekitBackground.dark
 }
 
 function overlay(theme: Partial<TitlebarTheme> = {}, zoom = 1) {
