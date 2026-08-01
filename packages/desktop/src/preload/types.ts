@@ -46,12 +46,41 @@ export type PrimeKitAccountState = {
   user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
 }
 
+export type PrimeKitRuntime = {
+  id: number
+  device_name: string
+  platform: string
+  status: "online" | "offline"
+}
+export type PrimeKitFolderGrant = {
+  id: number
+  runtime_id: number
+  display_name: string
+  root_path_display: string
+  active: boolean
+}
+export type PrimeKitExecutionTarget = {
+  kind: "cloud" | "desktop"
+  runtime_id: number | null
+  folder_grant_id: number | null
+  runtime_name?: string
+  folder_name?: string
+  online?: boolean
+  available: boolean
+}
+
 export type ElectronAPI = {
   primekit: {
     state: () => Promise<PrimeKitAccountState>
     requestEmailCode: (email: string) => Promise<{ status: string; email: string }>
     verifyEmailCode: (email: string, code: string) => Promise<PrimeKitAccountState["user"]>
     logout: () => Promise<void>
+    executionOptions: () => Promise<{ runtimes: PrimeKitRuntime[]; grants: PrimeKitFolderGrant[] }>
+    executionTarget: (chatID: number) => Promise<PrimeKitExecutionTarget>
+    setExecutionTarget: (
+      chatID: number,
+      target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number },
+    ) => Promise<PrimeKitExecutionTarget>
   }
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>

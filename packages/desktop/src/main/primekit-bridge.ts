@@ -27,6 +27,12 @@ type Space = {
   project_type?: string | null
 }
 type AskResponse = { task_id: number | null; user_message_id: number; status: string }
+type ExecutionTarget = {
+  kind: "cloud" | "desktop"
+  runtime_id: number | null
+  folder_grant_id: number | null
+  available: boolean
+}
 type ChatLocation = { kind: "general"; chatID: number } | { kind: "space"; spaceID: number; chatID: number }
 type ChatMessage = {
   id: number
@@ -55,6 +61,7 @@ const chatPath = (location: ChatLocation, suffix = "") =>
 const messageID = (message: ChatMessage) =>
   message.client_message_id?.startsWith("msg") ? message.client_message_id : `msg_pk_${message.id}`
 const millis = (value?: string | null) => (value ? Date.parse(value) || Date.now() : Date.now())
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const basic = (server: LocalServer) => `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`
 const kitModel = {
   id: "kit",
@@ -263,6 +270,39 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     }
   }
 
+  const watchDesktopCommand = async (chat: Chat, location: ChatLocation, commandID: number) => {
+    const sid = sessionID(location)
+    try {
+      for (let attempt = 0; attempt < 3_600; attempt++) {
+        const command = await primeKitAccount.request<{ status: string; error_text?: string | null }>(
+          `/desktop-agent/commands/${commandID}`,
+        )
+        if (["completed", "error", "rejected", "cancelled"].includes(command.status)) {
+          const fresh = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
+          await publishChat(fresh, false, location.kind === "space"
+            ? (await primeKitAccount.request<Space[]>("/servers/")).find((item) => item.id === location.spaceID)
+            : undefined)
+          if (command.status === "error") {
+            logger.error("PrimeKit desktop command failed", { chatID: chat.id, commandID, message: command.error_text })
+          }
+          return
+        }
+        await delay(1_000)
+      }
+      logger.error("PrimeKit desktop command timed out", { chatID: chat.id, commandID })
+    } catch (cause) {
+      logger.error("PrimeKit desktop command watch failed", {
+        chatID: chat.id,
+        commandID,
+        message: cause instanceof Error ? cause.message : String(cause),
+      })
+    } finally {
+      statuses.delete(sid)
+      emit("session.status", { sessionID: sid, status: { type: "idle" } })
+      emit("session.idle", { sessionID: sid })
+    }
+  }
+
   const cloudSessions = async () => {
     const [chats, spaces] = await Promise.all([
       primeKitAccount.request<Chat[]>("/chats/"),
@@ -460,14 +500,35 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         const input = JSON.parse((await body(request)).toString() || "{}") as { messageID?: string; parts?: Array<{ type?: string; text?: string }> }
         const prompt = (input.parts ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n").trim()
         if (!prompt) return json(response, 400, { error: "Добавьте текст" })
-        const task = await primeKitAccount.request<AskResponse>(chatPath(location, "/ask"), {
-          method: "POST",
-          body: JSON.stringify({
-            message: prompt,
-            client_message_id: input.messageID,
-            reasoning_effort: "high",
-          }),
-        })
+        const target = await primeKitAccount.request<ExecutionTarget>(`/desktop-agent/chats/${id}/target`)
+        const task = target.kind === "desktop"
+          ? await primeKitAccount.request<{ id: number; agent_task_id: number | null }>("/desktop-agent/commands", {
+              method: "POST",
+              body: JSON.stringify({
+                runtime_id: target.runtime_id,
+                chat_id: id,
+                client_message_id: input.messageID,
+                folder_grant_id: target.folder_grant_id,
+                action: "agent_run",
+                kind: "chat_turn",
+                approval_policy: "allow",
+                args: { prompt },
+                requested_by_device: "primekit-desktop",
+              }),
+            }).then((command) => ({
+              task_id: command.agent_task_id,
+              user_message_id: 0,
+              status: "queued",
+              desktop_command_id: command.id,
+            }))
+          : await primeKitAccount.request<AskResponse>(chatPath(location, "/ask"), {
+              method: "POST",
+              body: JSON.stringify({
+                message: prompt,
+                client_message_id: input.messageID,
+                reasoning_effort: "high",
+              }),
+            })
         const chat = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
         const persistedUser = [...(chat.messages ?? [])].reverse().find((item) => item.role === "user")
         if (input.messageID && persistedUser && input.messageID !== messageID(persistedUser)) {
@@ -481,7 +542,11 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         if (!task.task_id) return json(response, 204)
         statuses.set(sid, { type: "busy" })
         emit("session.status", { sessionID: sid, status: { type: "busy" } })
-        void streamTask(chat, location, task.task_id, persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`)
+        if ("desktop_command_id" in task && typeof task.desktop_command_id === "number") {
+          void watchDesktopCommand(chat, location, task.desktop_command_id)
+        } else {
+          void streamTask(chat, location, task.task_id, persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`)
+        }
         return json(response, 204)
       }
       if (child === "abort" && request.method === "POST") {

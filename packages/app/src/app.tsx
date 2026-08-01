@@ -275,6 +275,37 @@ declare global {
           user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
         }>
         logout: () => Promise<void>
+        executionOptions: () => Promise<{
+          runtimes: Array<{ id: number; device_name: string; platform: string; status: "online" | "offline" }>
+          grants: Array<{
+            id: number
+            runtime_id: number
+            display_name: string
+            root_path_display: string
+            active: boolean
+          }>
+        }>
+        executionTarget: (chatID: number) => Promise<{
+          kind: "cloud" | "desktop"
+          runtime_id: number | null
+          folder_grant_id: number | null
+          runtime_name?: string
+          folder_name?: string
+          online?: boolean
+          available: boolean
+        }>
+        setExecutionTarget: (
+          chatID: number,
+          target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number },
+        ) => Promise<{
+          kind: "cloud" | "desktop"
+          runtime_id: number | null
+          folder_grant_id: number | null
+          runtime_name?: string
+          folder_name?: string
+          online?: boolean
+          available: boolean
+        }>
       }
     }
   }

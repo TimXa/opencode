@@ -54,6 +54,24 @@ export function registerIpcHandlers(deps: Deps) {
     primeKitAccount.verifyEmailCode(email, code),
   )
   ipcMain.handle("primekit-auth-logout", () => primeKitAccount.logout())
+  ipcMain.handle("primekit-execution-options", async () => {
+    const [runtimes, grants] = await Promise.all([
+      primeKitAccount.request("/desktop-agent/runtimes"),
+      primeKitAccount.request("/desktop-agent/folder-grants"),
+    ])
+    return { runtimes, grants }
+  })
+  ipcMain.handle("primekit-execution-target", (_event, chatID: number) =>
+    primeKitAccount.request(`/desktop-agent/chats/${chatID}/target`),
+  )
+  ipcMain.handle(
+    "primekit-execution-target-set",
+    (_event, chatID: number, target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number }) =>
+      primeKitAccount.request(`/desktop-agent/chats/${chatID}/target`, {
+        method: "PUT",
+        body: JSON.stringify(target),
+      }),
+  )
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())
