@@ -1,11 +1,12 @@
-import { app } from "electron"
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { app, safeStorage } from "electron"
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { getStore, removeStoreFileIfEmpty } from "./store"
 
 const STORE = "primekit.account.dat"
 const KEY = "tokens"
 const SESSION_FILE = "primekit.session.json"
+const SECURE_SESSION_FILE = "primekit.session.v1.bin"
 
 type AuthTokens = { access_token: string; refresh_token: string }
 export type PrimeKitUser = {
@@ -15,22 +16,65 @@ export type PrimeKitUser = {
   photo_url?: string | null
 }
 
+function validTokens(value: unknown): value is AuthTokens {
+  if (!value || typeof value !== "object") return false
+  const tokens = value as Partial<AuthTokens>
+  return typeof tokens.access_token === "string" && typeof tokens.refresh_token === "string"
+}
+
+function readPlainTokens(): AuthTokens | undefined {
+  try {
+    const value = JSON.parse(readFileSync(join(app.getPath("userData"), SESSION_FILE), "utf8")) as unknown
+    return validTokens(value) ? value : undefined
+  } catch {
+    return
+  }
+}
+
+function securePath() {
+  return join(app.getPath("userData"), SECURE_SESSION_FILE)
+}
+
+function writeSecureTokens(tokens: AuthTokens) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("Защищённое хранилище Windows недоступно")
+  const path = securePath()
+  const temporary = `${path}.tmp`
+  mkdirSync(app.getPath("userData"), { recursive: true })
+  writeFileSync(temporary, safeStorage.encryptString(JSON.stringify(tokens)))
+  renameSync(temporary, path)
+}
+
 function readTokens(): AuthTokens | undefined {
   // ponytail: ad-hoc development signatures change between builds, so macOS Keychain
   // repeatedly asks the user to trust the rebuilt app. Keep this local session
   // file owner-only until release builds use a stable Developer ID signature.
   getStore(STORE).delete(KEY)
   void removeStoreFileIfEmpty(STORE)
+  if (process.platform !== "win32") return readPlainTokens()
   try {
-    const value = JSON.parse(readFileSync(join(app.getPath("userData"), SESSION_FILE), "utf8")) as AuthTokens
-    if (typeof value.access_token !== "string" || typeof value.refresh_token !== "string") return
-    return value
+    if (!safeStorage.isEncryptionAvailable()) return
+    const value = JSON.parse(safeStorage.decryptString(readFileSync(securePath()))) as unknown
+    return validTokens(value) ? value : undefined
   } catch {
-    return
+    const legacy = readPlainTokens()
+    if (!legacy) return
+    try {
+      writeSecureTokens(legacy)
+      const verified = JSON.parse(safeStorage.decryptString(readFileSync(securePath()))) as unknown
+      if (!validTokens(verified)) return
+      unlinkSync(join(app.getPath("userData"), SESSION_FILE))
+      return verified
+    } catch {
+      return
+    }
   }
 }
 
 function writeTokens(tokens: AuthTokens) {
+  if (process.platform === "win32") {
+    writeSecureTokens(tokens)
+    return
+  }
   const directory = app.getPath("userData")
   const path = join(directory, SESSION_FILE)
   mkdirSync(directory, { recursive: true })
@@ -41,6 +85,9 @@ function writeTokens(tokens: AuthTokens) {
 function clearTokens() {
   try {
     unlinkSync(join(app.getPath("userData"), SESSION_FILE))
+  } catch {}
+  try {
+    unlinkSync(securePath())
   } catch {}
   getStore(STORE).delete(KEY)
   void removeStoreFileIfEmpty(STORE)
@@ -129,6 +176,10 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
     open,
     request,
     signedIn: () => Boolean(load()?.access_token),
+    credential: async () => {
+      await request<PrimeKitUser>("/auth/me")
+      return tokens!.access_token
+    },
     state: async () => {
       if (!load()?.access_token) return { signedIn: false as const }
       try {

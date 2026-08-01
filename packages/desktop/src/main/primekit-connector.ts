@@ -1,8 +1,5 @@
-import { createHash } from "node:crypto"
-import { access, realpath } from "node:fs/promises"
-import { homedir, hostname } from "node:os"
-import { join } from "node:path"
 import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
+import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity, primeKitWorkspaceName } from "./primekit-device"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -23,21 +20,6 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function basic(server: LocalServer) {
   return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`
-}
-
-function deviceID() {
-  return `mac-${createHash("sha256").update(`${homedir()}\0${hostname()}`).digest("hex").slice(0, 32)}`
-}
-
-async function defaultWorkspace() {
-  const configured = process.env.PRIMEKIT_WORKSPACE_PATH
-  const candidate = configured || join(homedir(), "Desktop", "Проекты", "PrimeKit")
-  try {
-    await access(candidate)
-    return await realpath(candidate)
-  } catch {
-    return await realpath(homedir())
-  }
 }
 
 function localRequest<T>(server: LocalServer, path: string, init: RequestInit = {}): Promise<T> {
@@ -63,23 +45,77 @@ function textFromMessages(messages: unknown) {
   return ""
 }
 
+async function activeModel(server: LocalServer, root: string) {
+  await localRequest(server, `/config?directory=${encodeURIComponent(root)}`)
+  return { providerID: "openai", modelID: "kit" }
+}
+
+async function configurePrimeKitProvider(
+  server: LocalServer,
+  account: ReturnType<typeof createPrimeKitAccount>,
+  root: string,
+) {
+  const key = await account.credential()
+  const api = `${account.baseURL}/v1`
+  await localRequest(server, "/auth/openai", {
+    method: "PUT",
+    body: JSON.stringify({ type: "api", key }),
+  })
+  await localRequest(server, "/global/config", {
+    method: "PATCH",
+    body: JSON.stringify({
+      model: "openai/kit",
+      permission: "allow",
+      provider: {
+        openai: {
+          name: "Кит",
+          npm: "@ai-sdk/openai-compatible",
+          api,
+          models: { kit: { name: "Кит" } },
+          options: { baseURL: api },
+        },
+      },
+    }),
+  })
+  await localRequest(server, "/global/dispose", { method: "POST" })
+  await localRequest(server, `/config?directory=${encodeURIComponent(root)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      model: "openai/kit",
+      permission: "allow",
+      provider: {
+        openai: {
+          name: "Кит",
+          npm: "@ai-sdk/openai-compatible",
+          api,
+          models: { kit: { name: "Кит" } },
+          options: { baseURL: api },
+        },
+      },
+    }),
+  })
+  await localRequest(server, `/instance/dispose?directory=${encodeURIComponent(root)}`, { method: "POST" })
+}
+
 export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
   const account = primeKitAccount
   const controller = new AbortController()
 
   const connect = async () => {
-    const root = await defaultWorkspace()
+    const root = await defaultPrimeKitWorkspace()
+    const device = getPrimeKitDeviceIdentity()
+    const runtimePayload = {
+      device_id: device.id,
+      device_name: device.name,
+      platform: device.platform,
+      app_version: pkg.version,
+      capabilities: ["agent_run", "read", "write", "patch", "shell"],
+      workspace_path: root,
+      permission_summary: "Разрешения Кита · локальная папка проекта",
+    }
     const runtime = await account.request<Runtime>("/desktop-agent/runtimes", {
       method: "POST",
-      body: JSON.stringify({
-        device_id: deviceID(),
-        device_name: hostname() || "Кит Mac",
-        platform: "macos",
-        app_version: pkg.version,
-        capabilities: ["agent_run", "read", "write", "patch", "shell"],
-        workspace_path: root,
-        permission_summary: "Разрешения Кита · локальная папка проекта",
-      }),
+      body: JSON.stringify(runtimePayload),
     })
     const grants = await account.request<Grant[]>(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`)
     let grant = grants.find((item) => item.active && item.root_path_display === root)
@@ -87,27 +123,20 @@ export function startPrimeKitConnector(server: LocalServer, logger: Logger) {
       grant = await account.request<Grant>(`/desktop-agent/runtimes/${runtime.id}/folder-grants`, {
         method: "POST",
         body: JSON.stringify({
-          display_name: root.split("/").at(-1) || "PrimeKit",
+          display_name: primeKitWorkspaceName(root),
           root_path_display: root,
           capabilities: ["read", "write", "patch", "shell"],
         }),
       })
     }
-    logger.log("PrimeKit Mac connector online", { runtimeID: runtime.id, workspace: root })
+    await configurePrimeKitProvider(server, account, root)
+    logger.log("PrimeKit connector online", { runtimeID: runtime.id, platform: device.platform, workspace: root })
 
     while (!controller.signal.aborted) {
       try {
         await account.request(`/desktop-agent/runtimes/${runtime.id}/heartbeat`, {
           method: "POST",
-          body: JSON.stringify({
-            device_id: deviceID(),
-            device_name: hostname() || "Кит Mac",
-            platform: "macos",
-            app_version: pkg.version,
-            capabilities: ["agent_run", "read", "write", "patch", "shell"],
-            workspace_path: root,
-            permission_summary: "Разрешения Кита · локальная папка проекта",
-          }),
+          body: JSON.stringify(runtimePayload),
         })
         const commands = await account.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands`)
         for (const command of commands) await execute(command, grant!.id, root, server, account, logger)
@@ -152,7 +181,7 @@ async function execute(
     return
   }
   if (command.folder_grant_id && command.folder_grant_id !== localGrantID) {
-    await finish(account, command.id, "error", undefined, "Folder grant is not trusted on this Mac")
+    await finish(account, command.id, "error", undefined, "Folder grant is not trusted on this device")
     return
   }
   if (command.action === "refresh_permissions") {
@@ -175,7 +204,7 @@ async function execute(
     account.request(`/desktop-agent/commands/${command.id}/events`, {
       method: "POST",
       body: JSON.stringify({ event_index: eventIndex++, type, payload }),
-    })
+    }).catch(() => undefined)
   await event("progress", { message: "Кит запустил локального агента", workspace: root })
   try {
     let localSessionID = command.local_session_id ?? undefined
@@ -196,11 +225,14 @@ async function execute(
       })
       localSessionID = created.id
     }
+    await configurePrimeKitProvider(server, account, root)
+    const model = await activeModel(server, root)
+    logger.log("PrimeKit local agent selected", model)
     await localRequest(server, `/session/${localSessionID}/prompt_async?directory=${encodeURIComponent(root)}`, {
       method: "POST",
       body: JSON.stringify({
         agent: "build",
-        model: { providerID: "openai", modelID: "gpt-5.4" },
+        model,
         parts: [{ type: "text", text: prompt }],
       }),
     })
