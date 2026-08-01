@@ -102,15 +102,13 @@ function canonicalContext(command: Command) {
   ].filter(Boolean).join("\n\n")
 }
 
-async function activeModel(server: LocalServer, root: string) {
-  await localRequest(server, `/config?directory=${encodeURIComponent(root)}`)
+function activeModel() {
   return { providerID: "openai", modelID: "kit" }
 }
 
 async function configurePrimeKitProvider(
   server: LocalServer,
   account: ReturnType<typeof createPrimeKitAccount>,
-  root: string,
 ) {
   const key = await account.credential()
   const api = `${account.baseURL}/v1`
@@ -119,22 +117,6 @@ async function configurePrimeKitProvider(
     body: JSON.stringify({ type: "api", key }),
   })
   await localRequest(server, "/global/config", {
-    method: "PATCH",
-    body: JSON.stringify({
-      model: "openai/kit",
-      permission: "allow",
-      provider: {
-        openai: {
-          name: "Кит",
-          npm: "@ai-sdk/openai-compatible",
-          api,
-          models: { kit: { name: "Кит" } },
-          options: { baseURL: api },
-        },
-      },
-    }),
-  })
-  await localRequest(server, `/config?directory=${encodeURIComponent(root)}`, {
     method: "PATCH",
     body: JSON.stringify({
       model: "openai/kit",
@@ -381,8 +363,8 @@ async function execute(
     }
     rememberSession(command.id, root, localSessionID)
     await event("session", { message: "Локальная сессия подключена", session_id: localSessionID })
-    await configurePrimeKitProvider(server, account, root)
-    const model = await activeModel(server, root)
+    await configurePrimeKitProvider(server, account)
+    const model = activeModel()
     logger.log("PrimeKit local agent selected", model)
     const localMessageID = `msg_pk_cmd_${command.id}`
     const existingMessages = await localRequest<Array<{ info?: { id?: string } }>>(
