@@ -8,6 +8,7 @@ type Runtime = { id: number }
 type Grant = { id: number; runtime_id: number; root_path_display: string; active: boolean }
 type Command = {
   id: number
+  status: string
   claim_token: string
   chat_id?: number | null
   action: string
@@ -195,6 +196,17 @@ async function execute(
   account: ReturnType<typeof createPrimeKitAccount>,
   logger: Logger,
 ) {
+  if (command.status === "cancel_requested") {
+    if (command.local_session_id) {
+      await localRequest(
+        server,
+        `/session/${command.local_session_id}/abort?directory=${encodeURIComponent(root)}`,
+        { method: "POST" },
+      ).catch(() => undefined)
+    }
+    await finish(account, command, "cancelled", undefined, "Остановлено пользователем")
+    return
+  }
   if (command.expires_at && Date.parse(command.expires_at) <= Date.now()) {
     await finish(account, command, "error", undefined, "Command expired")
     return
@@ -279,6 +291,19 @@ async function execute(
     let observedBusy = false
     let idlePolls = 0
     for (let attempt = 0; attempt < 900; attempt++) {
+      if (attempt % 2 === 0) {
+        const remote = await account.request<{ status: string }>(`/desktop-agent/commands/${command.id}`)
+        if (remote.status === "cancel_requested") {
+          await localRequest(
+            server,
+            `/session/${localSessionID}/abort?directory=${encodeURIComponent(root)}`,
+            { method: "POST" },
+          ).catch(() => undefined)
+          await event("cancelled", { message: "Локальная задача остановлена пользователем", session_id: localSessionID })
+          await finish(account, command, "cancelled", undefined, "Остановлено пользователем")
+          return
+        }
+      }
       if (attempt % 15 === 0) {
         await account.request(`/desktop-agent/commands/${command.id}/lease`, {
           method: "POST",
@@ -319,7 +344,7 @@ async function execute(
 function finish(
   account: ReturnType<typeof createPrimeKitAccount>,
   command: Command,
-  status: "completed" | "error",
+  status: "completed" | "error" | "cancelled",
   result?: Record<string, unknown>,
   errorText?: string,
 ) {
