@@ -43,13 +43,10 @@ jobs:
         working-directory: packages/desktop
         run: bun run build
 
-      - name: Reject host-native contamination
+      - name: Verify Windows native bundle marker
         shell: pwsh
         run: |
           $bundle = Get-ChildItem packages/desktop/out/main -Recurse -File | Get-Content -Raw
-          if ($bundle -match 'node-pty-darwin|node-pty-linux') {
-            throw 'Windows bundle contains a non-Windows PTY dependency'
-          }
           if ($bundle -notmatch 'node-pty-win32-x64') {
             throw 'Windows x64 PTY dependency is missing from the bundle'
           }
@@ -65,6 +62,12 @@ jobs:
           $app = 'packages/desktop/dist/win-unpacked/Кит.exe'
           if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
           if (-not (Test-Path $app)) { throw "Missing unpacked app: $app" }
+          $modules = 'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules'
+          $pty = Join-Path $modules '@lydell/node-pty-win32-x64'
+          if (-not (Test-Path $pty)) { throw "Missing packaged Windows PTY runtime: $pty" }
+          $foreignPty = Get-ChildItem (Join-Path $modules '@lydell') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^node-pty-(darwin|linux)' }
+          if ($foreignPty) { throw "Packaged foreign PTY runtimes: $($foreignPty.Name -join ', ')" }
           $cua = 'packages/desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@trycua/cua-driver-win32-x64-msvc'
           foreach ($file in @('cua_driver_node_runtime.node', 'cua_driver_sdk.dll', 'node-runtime-NOTICE.md')) {
             $path = Join-Path $cua $file
