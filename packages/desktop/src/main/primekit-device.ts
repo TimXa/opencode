@@ -1,9 +1,78 @@
 import { createHash, randomUUID } from "node:crypto"
+import { app, safeStorage } from "electron"
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { access, mkdir, realpath } from "node:fs/promises"
 import { homedir, hostname } from "node:os"
 import { basename, join } from "node:path"
 import { getStore } from "./store"
 import { PRIMEKIT_DEVICE_ID_KEY } from "./store-keys"
+
+const DEVICE_CREDENTIAL_FILE = "primekit.device-credential.v1.bin"
+const DEVICE_CREDENTIAL_QA_FILE = "primekit.device-credential.qa.json"
+const UNSIGNED_QA = import.meta.env.PRIMEKIT_UNSIGNED_QA
+
+export type PrimeKitDeviceCredential = {
+  device_id: string
+  runtime_id: number
+  device_token: string
+  device_token_expires_at: string
+}
+
+function validDeviceCredential(value: unknown): value is PrimeKitDeviceCredential {
+  if (!value || typeof value !== "object") return false
+  const credential = value as Partial<PrimeKitDeviceCredential>
+  return typeof credential.device_id === "string"
+    && typeof credential.runtime_id === "number"
+    && typeof credential.device_token === "string"
+    && credential.device_token.startsWith("pkd_")
+    && typeof credential.device_token_expires_at === "string"
+}
+
+function encryptedDeviceCredentialEnabled() {
+  return process.platform === "win32" || (process.platform === "darwin" && app.isPackaged && !UNSIGNED_QA)
+}
+
+function deviceCredentialPath(encrypted = encryptedDeviceCredentialEnabled()) {
+  return join(app.getPath("userData"), encrypted ? DEVICE_CREDENTIAL_FILE : DEVICE_CREDENTIAL_QA_FILE)
+}
+
+export function readPrimeKitDeviceCredential(deviceID: string) {
+  const parse = (encrypted: boolean) => {
+    const raw = readFileSync(deviceCredentialPath(encrypted))
+    const value = JSON.parse(encrypted ? safeStorage.decryptString(raw) : raw.toString("utf8")) as unknown
+    return validDeviceCredential(value) && value.device_id === deviceID ? value : undefined
+  }
+  const encrypted = encryptedDeviceCredentialEnabled()
+  try {
+    return parse(encrypted)
+  } catch {
+    if (!encrypted) return
+    try {
+      const qaCredential = parse(false)
+      if (!qaCredential) return
+      writePrimeKitDeviceCredential(qaCredential)
+      unlinkSync(deviceCredentialPath(false))
+      return qaCredential
+    } catch {}
+    return
+  }
+}
+
+export function writePrimeKitDeviceCredential(credential: PrimeKitDeviceCredential) {
+  const encrypted = encryptedDeviceCredentialEnabled()
+  if (encrypted && !safeStorage.isEncryptionAvailable()) {
+    throw new Error("Защищённое хранилище устройства недоступно")
+  }
+  const path = deviceCredentialPath(encrypted)
+  const temporary = `${path}.tmp`
+  mkdirSync(app.getPath("userData"), { recursive: true })
+  const body = encrypted
+    ? safeStorage.encryptString(JSON.stringify(credential))
+    : Buffer.from(`${JSON.stringify(credential)}\n`)
+  writeFileSync(temporary, body, { mode: 0o600 })
+  chmodSync(temporary, 0o600)
+  renameSync(temporary, path)
+}
 
 export type PrimeKitPlatform = "macos" | "windows" | "linux"
 

@@ -1,5 +1,10 @@
 import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
-import { defaultPrimeKitWorkspace, getPrimeKitDeviceIdentity } from "./primekit-device"
+import {
+  defaultPrimeKitWorkspace,
+  getPrimeKitDeviceIdentity,
+  readPrimeKitDeviceCredential,
+  writePrimeKitDeviceCredential,
+} from "./primekit-device"
 import { syncPrimeKitFolderGrants } from "./primekit-folders"
 import { currentPrimeKitAccessProfile, requestPrimeKitFullDeviceAccess } from "./primekit-access"
 import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-computer-mcp"
@@ -197,6 +202,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
   const connect = async () => {
     const root = await defaultPrimeKitWorkspace()
     const device = getPrimeKitDeviceIdentity()
+    const savedDeviceCredential = readPrimeKitDeviceCredential(device.id)
     const access = await requestPrimeKitFullDeviceAccess()
     let computerProbe: PrimeKitComputerProbe =
       access === "full_device"
@@ -229,7 +235,16 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
     })
     const runtime = await account.request<Runtime>("/desktop-agent/runtimes", {
       method: "POST",
+      headers: savedDeviceCredential
+        ? { "x-primekit-device-credential": savedDeviceCredential.device_token }
+        : undefined,
       body: JSON.stringify(runtimePayload(access === "full_device", computerProbe)),
+    })
+    writePrimeKitDeviceCredential({
+      device_id: device.id,
+      runtime_id: runtime.id,
+      device_token: runtime.device_token,
+      device_token_expires_at: runtime.device_token_expires_at,
     })
     const connection = new AbortController()
     const deviceClient = createDeviceClient(account.baseURL, runtime.device_token, connection)
