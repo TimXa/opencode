@@ -82,7 +82,7 @@ import {
   type WorkspaceSidebarContext,
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
-import { SidebarContent } from "./layout/sidebar-shell"
+import { SessionItem } from "./layout/sidebar-items"
 
 export default function LegacyLayout(props: ParentProps) {
   const serverSDK = useServerSDK()
@@ -2231,31 +2231,154 @@ export default function LegacyLayout(props: ParentProps) {
 
   const projects = () => layout.projects.list()
   const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
+
+  const [primeKitAccount] = createResource(async () => window.api?.primekit?.state())
+  const accountName = createMemo(() => {
+    const user = primeKitAccount()?.user
+    return user?.display_name?.trim() || user?.email?.split("@")[0] || "Профиль"
+  })
+  const accountAvatar = createMemo(() => primeKitAccount()?.user?.photo_url?.trim())
+  const primeKitProfileImage = createMemo(() => {
+    const value = accountAvatar()
+    if (!value) return
+    if (/^https?:\/\//.test(value)) return value
+    return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
+  })
+  const personalProject = createMemo(
+    () => projects().find((project) => displayName(project) === "Личные чаты") ?? projects()[0],
+  )
+  const startNewChat = (project = personalProject()) => {
+    if (!project) return
+    navigateWithSidebarReset(`/${base64Encode(project.worktree)}/session`)
+  }
+  const primeKitSidebar = (mobile?: boolean) => (
+    <aside class="flex h-full w-full min-w-0 flex-col bg-[#3d372e] text-[#f3f0e8]">
+      <div class="shrink-0 px-4 pb-3 pt-4">
+        <div class="flex h-9 items-center justify-between">
+          <button
+            type="button"
+            class="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-white/7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+            onClick={() => navigate("/")}
+          >
+            <span class="truncate text-[18px] font-semibold tracking-[-0.02em]">Кит</span>
+            <IconV2 name="chevron-down" size="small" class="text-white/45" />
+          </button>
+          <div class="flex items-center gap-1">
+            <IconButton icon="magnifying-glass" variant="ghost" size="large" aria-label="Поиск" onClick={() => navigate("/")} />
+            <button type="button" class="flex size-8 items-center justify-center rounded-lg text-white/45 hover:bg-white/8 hover:text-white/80" aria-label="Уведомления">
+              <svg viewBox="0 0 20 20" class="size-4" fill="none" aria-hidden="true">
+                <path d="M6.25 8.1a3.75 3.75 0 0 1 7.5 0v2.15c0 1.1.42 2.16 1.18 2.96l.32.34H4.75l.32-.34a4.3 4.3 0 0 0 1.18-2.96V8.1ZM8.25 15.2c.3.8.9 1.2 1.75 1.2s1.45-.4 1.75-1.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="mt-3 flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[14px] font-medium text-white/90 transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
+          onClick={() => startNewChat()}
+        >
+          <IconV2 name="edit" size="small" />
+          Новый чат
+        </button>
+      </div>
+
+      <div class="mx-4 h-px shrink-0 bg-white/7" />
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-4 no-scrollbar">
+        <div class="px-2 pb-2 text-[12px] font-medium text-white/38">Проекты</div>
+        <div class="flex flex-col gap-2">
+          <For each={projects()}>
+            {(project) => {
+              const slug = base64Encode(project.worktree)
+              const [projectStore] = serverSync().child(project.worktree)
+              const sessions = createMemo(() => sortedRootSessions(projectStore, sortNow()))
+              const selected = createMemo(() => pathKey(currentDir()) === pathKey(project.worktree))
+              return (
+                <section class="group/project min-w-0">
+                  <div
+                    classList={{
+                      "flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none": true,
+                      "bg-white/10 text-white": selected(),
+                      "text-white/78 hover:bg-white/7": !selected(),
+                    }}
+                  >
+                    <button
+                      type="button"
+                      class="flex h-full min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                      onClick={() => navigateToProject(project.worktree)}
+                    >
+                      <IconV2 name="folder" size="small" class="shrink-0 text-white/60" />
+                      <span class="min-w-0 flex-1 truncate text-[14px] font-medium">{displayName(project)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="flex size-6 shrink-0 items-center justify-center rounded-md text-white/45 opacity-0 hover:bg-white/10 hover:text-white group-hover/project:opacity-100 focus:opacity-100"
+                      aria-label={`Новый чат в ${displayName(project)}`}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        startNewChat(project)
+                      }}
+                    >
+                      <IconV2 name="edit" size="small" />
+                    </button>
+                  </div>
+                  <Show when={sessions().length > 0}>
+                    <div class="ml-7 mt-1 flex min-w-0 flex-col border-l border-white/9 pl-1">
+                      <For each={sessions().slice(0, 8)}>
+                        {(session) => (
+                          <SessionItem
+                            {...projectSidebarCtx.sessionProps}
+                            session={session}
+                            list={sessions()}
+                            slug={slug}
+                            dense
+                            mobile={mobile}
+                            sidebarExpanded={() => true}
+                          />
+                        )}
+                      </For>
+                      <Show when={sessions().length > 8}>
+                        <button
+                          type="button"
+                          class="h-7 truncate rounded-md px-2 text-left text-[13px] text-white/38 hover:bg-white/7 hover:text-white/65"
+                          onClick={() => navigateToProject(project.worktree)}
+                        >
+                          Показать ещё {sessions().length - 8}
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
+                </section>
+              )
+            }}
+          </For>
+        </div>
+      </div>
+
+      <div class="shrink-0 border-t border-white/8 p-2">
+        <button
+          type="button"
+          class="flex h-12 w-full min-w-0 items-center gap-3 rounded-xl px-2 text-left transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
+          onClick={openSettings}
+        >
+          <Show
+            when={primeKitProfileImage()}
+            fallback={
+              <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
+                {accountName().slice(0, 2).toUpperCase()}
+              </span>
+            }
+          >
+            {(src) => <img src={src()} alt="" class="size-7 shrink-0 rounded-full object-cover" />}
+          </Show>
+          <span class="min-w-0 flex-1 truncate text-[14px] font-medium text-white/82">{accountName()}</span>
+          <IconV2 name="settings-gear" size="small" class="text-white/38" />
+        </button>
+      </div>
+    </aside>
+  )
   const sidebarContent = (mobile?: boolean) => (
-    <SidebarContent
-      mobile={mobile}
-      opened={() => layout.sidebar.opened()}
-      aimMove={aim.move}
-      projects={projects}
-      renderProject={(project) => (
-        <SortableProject ctx={projectSidebarCtx} project={project} sortNow={sortNow} mobile={mobile} />
-      )}
-      handleDragStart={handleDragStart}
-      handleDragEnd={handleDragEnd}
-      handleDragOver={handleDragOver}
-      openProjectLabel={language.t("command.project.open")}
-      openProjectKeybind={() => command.keybind("project.open")}
-      onOpenProject={chooseProject}
-      renderProjectOverlay={projectOverlay}
-      settingsLabel={() => language.t("sidebar.settings")}
-      settingsKeybind={() => command.keybind("settings.open")}
-      onOpenSettings={openSettings}
-      helpLabel={() => language.t("sidebar.help")}
-      onOpenHelp={() => platform.openLink("https://primekit-job.ru")}
-      renderPanel={() =>
-        mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
-      }
-    />
+    primeKitSidebar(mobile)
   )
 
   return (
@@ -2283,7 +2406,7 @@ export default function LegacyLayout(props: ParentProps) {
                 "absolute inset-y-0 left-0": true,
                 "z-10": true,
               }}
-              style={{ width: `${side()}px` }}
+              style={{ width: "320px" }}
               ref={(el) => {
                 setState("nav", el)
               }}
@@ -2300,7 +2423,7 @@ export default function LegacyLayout(props: ParentProps) {
               <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
             </nav>
 
-            <Show when={layout.sidebar.opened()}>
+            <Show when={false}>
               <div
                 class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
                 style={{ left: `${side()}px` }}
@@ -2360,7 +2483,7 @@ export default function LegacyLayout(props: ParentProps) {
                   !state.sizing,
               }}
               style={{
-                "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
+                "--main-left": "320px",
               }}
             >
               <main

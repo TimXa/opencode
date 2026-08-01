@@ -93,6 +93,7 @@ function getLastActiveUrl(windowID: string) {
   if (typeof localStorage !== "object") return "/"
   try {
     const value = localStorage.getItem(windowLastActiveUrlKey(windowID))
+    if (value?.includes("/session/") && !value.includes("/session/ses_pk_")) return "/"
     if (value?.startsWith("/") && !value.startsWith("//")) return value
   } catch {}
   return "/"

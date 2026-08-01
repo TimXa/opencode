@@ -269,6 +269,13 @@ declare global {
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
       exportDebugLogs?: () => Promise<string>
+      primekit?: {
+        state: () => Promise<{
+          signedIn: boolean
+          user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
+        }>
+        logout: () => Promise<void>
+      }
     }
   }
 }

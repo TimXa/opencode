@@ -110,6 +110,11 @@ function createServerCtx(
   const sdk = createServerSdkContext(conn, scope)
   const sync = createServerSyncContext(sdk)
 
+  createEffect(() => {
+    if (!sync.ready) return
+    for (const project of sync.data.project) projects.open(project.worktree)
+  })
+
   function enrich(project: { worktree: string; expanded: boolean }) {
     const [childStore] = sync.child(project.worktree, { bootstrap: false })
     const projectID = childStore.project

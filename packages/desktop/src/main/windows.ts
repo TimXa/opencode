@@ -415,9 +415,9 @@ function wireWindowRecovery(win: BrowserWindow, name: string) {
 }
 
 function addDocumentPolicy(response: Response, file: string) {
-  if (!file.toLowerCase().endsWith(".html")) return response
   const headers = new Headers(response.headers)
-  headers.set(documentPolicyHeader, jsCallStacksDocumentPolicy)
+  headers.set("cache-control", "no-store")
+  if (file.toLowerCase().endsWith(".html")) headers.set(documentPolicyHeader, jsCallStacksDocumentPolicy)
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
