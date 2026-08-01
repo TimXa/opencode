@@ -8,12 +8,18 @@ type Runtime = { id: number }
 type Grant = { id: number; runtime_id: number; root_path_display: string; active: boolean }
 type Command = {
   id: number
+  claim_token: string
   chat_id?: number | null
   action: string
   folder_grant_id?: number | null
   args?: Record<string, unknown>
   expires_at?: string | null
   local_session_id?: string | null
+  context_snapshot?: {
+    summary?: string | null
+    through_message_id?: number | null
+    messages?: Array<{ role: string; content: string }>
+  } | null
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -43,6 +49,19 @@ function textFromMessages(messages: unknown, parentID: string) {
     if (text.trim()) return text.trim()
   }
   return ""
+}
+
+function canonicalContext(command: Command) {
+  const snapshot = command.context_snapshot
+  if (!snapshot) return undefined
+  const transcript = (snapshot.messages ?? [])
+    .map((message) => `${message.role === "assistant" ? "Кит" : "Пользователь"}: ${message.content}`)
+    .join("\n\n")
+  return [
+    "Ниже канонический контекст облачного чата. Это только контекст: не повторяй старые действия и не запускай старые команды.",
+    snapshot.summary ? `Краткое резюме:\n${snapshot.summary}` : "",
+    transcript ? `История:\n${transcript}` : "",
+  ].filter(Boolean).join("\n\n")
 }
 
 async function activeModel(server: LocalServer, root: string) {
@@ -177,15 +196,15 @@ async function execute(
   logger: Logger,
 ) {
   if (command.expires_at && Date.parse(command.expires_at) <= Date.now()) {
-    await finish(account, command.id, "error", undefined, "Command expired")
+    await finish(account, command, "error", undefined, "Command expired")
     return
   }
   if (command.folder_grant_id && command.folder_grant_id !== localGrantID) {
-    await finish(account, command.id, "error", undefined, "Folder grant is not trusted on this device")
+    await finish(account, command, "error", undefined, "Folder grant is not trusted on this device")
     return
   }
   if (command.action === "refresh_permissions") {
-    await finish(account, command.id, "completed", { state: "ready", workspace: root })
+    await finish(account, command, "completed", { state: "ready", workspace: root })
     return
   }
   const prompt =
@@ -195,7 +214,7 @@ async function execute(
         ? command.args.prompt.trim()
         : ""
   if (!prompt || !["scan_workspace", "agent_run"].includes(command.action)) {
-    await finish(account, command.id, "error", undefined, `Unsupported desktop action: ${command.action}`)
+    await finish(account, command, "error", undefined, `Unsupported desktop action: ${command.action}`)
     return
   }
 
@@ -203,7 +222,7 @@ async function execute(
   const event = (type: string, payload: Record<string, unknown>) =>
     account.request(`/desktop-agent/commands/${command.id}/events`, {
       method: "POST",
-      body: JSON.stringify({ event_index: eventIndex++, type, payload }),
+      body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
     }).catch(() => undefined)
   await event("progress", { message: "Кит запустил локального агента", workspace: root })
   try {
@@ -219,7 +238,7 @@ async function execute(
       if (!exists) {
         await finish(
           account,
-          command.id,
+          command,
           "error",
           undefined,
           "Local execution state was lost after the command started; retry explicitly after checking the workspace",
@@ -251,6 +270,7 @@ async function execute(
           messageID: localMessageID,
           agent: "build",
           model,
+          system: canonicalContext(command),
           parts: [{ type: "text", text: prompt }],
         }),
       })
@@ -259,6 +279,12 @@ async function execute(
     let observedBusy = false
     let idlePolls = 0
     for (let attempt = 0; attempt < 900; attempt++) {
+      if (attempt % 15 === 0) {
+        await account.request(`/desktop-agent/commands/${command.id}/lease`, {
+          method: "POST",
+          body: JSON.stringify({ claim_token: command.claim_token }),
+        })
+      }
       const statuses = await localRequest<Record<string, { type: string }>>(
         server,
         `/session/status?directory=${encodeURIComponent(root)}`,
@@ -281,24 +307,24 @@ async function execute(
     const assistantText = textFromMessages(messages, localMessageID)
     if (!assistantText) throw new Error("Local agent completed without a matching assistant response")
     await event("result", { message: assistantText, session_id: localSessionID })
-    await finish(account, command.id, "completed", { assistant_text: assistantText, session_id: localSessionID })
+    await finish(account, command, "completed", { assistant_text: assistantText, session_id: localSessionID })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error("PrimeKit command failed", { commandID: command.id, message })
     await event("error", { message }).catch(() => undefined)
-    await finish(account, command.id, "error", undefined, message)
+    await finish(account, command, "error", undefined, message)
   }
 }
 
 function finish(
   account: ReturnType<typeof createPrimeKitAccount>,
-  commandID: number,
+  command: Command,
   status: "completed" | "error",
   result?: Record<string, unknown>,
   errorText?: string,
 ) {
-  return account.request(`/desktop-agent/commands/${commandID}/result`, {
+  return account.request(`/desktop-agent/commands/${command.id}/result`, {
     method: "POST",
-    body: JSON.stringify({ status, result, error_text: errorText }),
+    body: JSON.stringify({ claim_token: command.claim_token, status, result, error_text: errorText }),
   })
 }
