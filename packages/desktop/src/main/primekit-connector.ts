@@ -1,3 +1,7 @@
+import { createWriteStream } from "node:fs"
+import { mkdir, rename, unlink } from "node:fs/promises"
+import { basename, join } from "node:path"
+import { app } from "electron"
 import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
 import {
   defaultPrimeKitWorkspace,
@@ -21,7 +25,10 @@ import pkg from "../../package.json"
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
 type LocalServer = { url: string; username: string; password: string }
 type Runtime = { id: number; device_token: string; device_token_expires_at: string }
-type DeviceClient = { request: <T>(path: string, init?: RequestInit) => Promise<T> }
+type DeviceClient = {
+  request: <T>(path: string, init?: RequestInit) => Promise<T>
+  download: (path: string, init?: RequestInit) => Promise<Response>
+}
 type ModelCredential = {
   access_token: string
   expires_in: number
@@ -46,6 +53,7 @@ type Command = {
 }
 type CommandSession = { session_id: string; root: string; recorded_at: number }
 type CommandEvent = { event_index: number }
+type CommandAttachment = { file_id: string; filename: string; size?: number; type?: string | null }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const abortableDelay = (ms: number, signal: AbortSignal) =>
@@ -70,32 +78,90 @@ class DeviceRequestError extends Error {
 }
 
 function createDeviceClient(baseURL: string, token: string, connection: AbortController): DeviceClient {
+  const send = async (path: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers)
+    headers.set("authorization", `Bearer ${token}`)
+    if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
+    const response = await fetch(`${baseURL}${path}`, {
+      ...init,
+      headers,
+      signal: boundedSignal(AbortSignal.any([
+        connection.signal,
+        ...(init.signal ? [init.signal] : []),
+      ])),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => undefined) as { detail?: unknown } | undefined
+      const error = new DeviceRequestError(
+        response.status,
+        typeof body?.detail === "string" ? body.detail : `PrimeKit device API returned ${response.status}`,
+      )
+      if (response.status === 401) connection.abort(error)
+      throw error
+    }
+    return response
+  }
   return {
     request: async <T>(path: string, init: RequestInit = {}) => {
-      const headers = new Headers(init.headers)
-      headers.set("authorization", `Bearer ${token}`)
-      if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
-      const response = await fetch(`${baseURL}${path}`, {
-        ...init,
-        headers,
-        signal: boundedSignal(AbortSignal.any([
-          connection.signal,
-          ...(init.signal ? [init.signal] : []),
-        ])),
-      })
-      if (!response.ok) {
-        const body = await response.json().catch(() => undefined) as { detail?: unknown } | undefined
-        const error = new DeviceRequestError(
-          response.status,
-          typeof body?.detail === "string" ? body.detail : `PrimeKit device API returned ${response.status}`,
-        )
-        if (response.status === 401) connection.abort(error)
-        throw error
-      }
+      const response = await send(path, init)
       if (response.status === 204) return undefined as T
       return await response.json() as T
     },
+    download: send,
   }
+}
+
+function commandAttachments(command: Command): CommandAttachment[] {
+  const value = command.args?.attachments
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is CommandAttachment => {
+    if (!item || typeof item !== "object") return false
+    const attachment = item as Partial<CommandAttachment>
+    return typeof attachment.file_id === "string" && typeof attachment.filename === "string"
+  })
+}
+
+async function materializeCommandAttachments(command: Command, device: DeviceClient) {
+  const attachments = commandAttachments(command)
+  if (attachments.length === 0) return []
+  const directory = join(app.getPath("userData"), "primekit-attachments", String(command.chat_id ?? "chat"))
+  await mkdir(directory, { recursive: true })
+  const paths: Array<{ filename: string; path: string }> = []
+  for (const attachment of attachments) {
+    const filename = basename(attachment.filename).replaceAll("\0", "") || "attachment"
+    const target = join(directory, `${attachment.file_id}_${filename}`)
+    const temporary = `${target}.part`
+    const response = await device.download(
+      `/desktop-agent/device/commands/${command.id}/files/${encodeURIComponent(attachment.file_id)}`,
+    )
+    if (!response.body) throw new Error(`Вложение ${filename} вернулось без содержимого`)
+    await unlink(temporary).catch(() => undefined)
+    try {
+      const output = createWriteStream(temporary, { mode: 0o600 })
+      const reader = response.body.getReader()
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await new Promise<void>((resolve, reject) => {
+            output.write(value, (error) => error ? reject(error) : resolve())
+          })
+        }
+        await new Promise<void>((resolve, reject) => {
+          output.end((error?: Error | null) => error ? reject(error) : resolve())
+        })
+      } catch (error) {
+        output.destroy()
+        throw error
+      }
+      await rename(temporary, target)
+    } catch (error) {
+      await unlink(temporary).catch(() => undefined)
+      throw error
+    }
+    paths.push({ filename, path: target })
+  }
+  return paths
 }
 
 function commandSessions() {
@@ -225,6 +291,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
             "write",
             "patch",
             "shell",
+            "command_attachments",
             "full_device",
             ...(probe.screen ? ["screenshot"] : []),
             ...(probe.input ? ["ui_control"] : []),
@@ -494,6 +561,21 @@ async function execute(
       }
     })()
     await event("session", { message: "Локальная сессия подключена", session_id: localSessionID })
+    const localAttachments = await materializeCommandAttachments(command, device)
+    if (localAttachments.length > 0) {
+      await event("progress", {
+        message: `Загружено вложений: ${localAttachments.length}`,
+        files: localAttachments.map((attachment) => attachment.filename),
+      })
+    }
+    const attachmentContext = localAttachments.length > 0
+      ? [
+          "ПРИКРЕПЛЁННЫЕ ФАЙЛЫ УЖЕ ЗАГРУЖЕНЫ НА ЭТО УСТРОЙСТВО.",
+          "Используй указанные абсолютные пути напрямую; не проси пользователя загрузить файлы повторно:",
+          ...localAttachments.map((attachment) => `- ${attachment.filename}: ${attachment.path}`),
+        ].join("\n")
+      : ""
+    const effectivePrompt = [attachmentContext, prompt].filter(Boolean).join("\n\n")
     await configurePrimeKitProvider(server, modelCredential.access_token)
     const model = activeModel()
     logger.log("PrimeKit local agent selected", model)
@@ -514,7 +596,7 @@ async function execute(
           agent: "build",
           model,
           system: canonicalContext(command),
-          parts: [{ type: "text", text: prompt }],
+          parts: [{ type: "text", text: effectivePrompt }],
         }),
       })
     }
