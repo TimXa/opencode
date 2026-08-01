@@ -17,6 +17,10 @@ export type PrimeKitUser = {
   photo_url?: string | null
 }
 
+function boundedSignal(signal?: AbortSignal | null) {
+  return AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])])
+}
+
 function validTokens(value: unknown): value is AuthTokens {
   if (!value || typeof value !== "object") return false
   const tokens = value as Partial<AuthTokens>
@@ -126,6 +130,7 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
     if (!current?.refresh_token) throw new Error("Войдите в аккаунт PrimeKit")
     const response = await fetch(`${baseURL}/auth/refresh`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ refresh_token: current.refresh_token }),
     })
@@ -147,6 +152,7 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
       fetch(`${baseURL}${path}`, {
         ...init,
         headers,
+        signal: boundedSignal(init.signal),
       })
     let response = await send()
     if (response.status === 401) {
@@ -169,6 +175,7 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
   const publicRequest = async <T>(path: string, body: unknown): Promise<T> => {
     const response = await fetch(`${baseURL}${path}`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     })

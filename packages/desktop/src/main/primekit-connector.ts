@@ -12,8 +12,14 @@ type Logger = { log: (message: string, meta?: unknown) => void; error: (message:
 type LocalServer = { url: string; username: string; password: string }
 type Runtime = { id: number; device_token: string; device_token_expires_at: string }
 type DeviceClient = { request: <T>(path: string, init?: RequestInit) => Promise<T> }
+type ModelCredential = {
+  access_token: string
+  expires_in: number
+  gateway: { configured: boolean; model: string }
+}
 type Command = {
   id: number
+  runtime_id: number
   status: string
   claim_token: string
   chat_id?: number | null
@@ -32,6 +38,20 @@ type CommandSession = { session_id: string; root: string; recorded_at: number }
 type CommandEvent = { event_index: number }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const abortableDelay = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason)
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }, { once: true })
+  })
+
+function boundedSignal(signal?: AbortSignal | null, timeout = 15_000) {
+  const signals = [AbortSignal.timeout(timeout), ...(signal ? [signal] : [])]
+  return AbortSignal.any(signals)
+}
 
 class DeviceRequestError extends Error {
   constructor(readonly status: number, message: string) {
@@ -39,19 +59,28 @@ class DeviceRequestError extends Error {
   }
 }
 
-function createDeviceClient(baseURL: string, token: string): DeviceClient {
+function createDeviceClient(baseURL: string, token: string, connection: AbortController): DeviceClient {
   return {
     request: async <T>(path: string, init: RequestInit = {}) => {
       const headers = new Headers(init.headers)
       headers.set("authorization", `Bearer ${token}`)
       if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
-      const response = await fetch(`${baseURL}${path}`, { ...init, headers })
+      const response = await fetch(`${baseURL}${path}`, {
+        ...init,
+        headers,
+        signal: boundedSignal(AbortSignal.any([
+          connection.signal,
+          ...(init.signal ? [init.signal] : []),
+        ])),
+      })
       if (!response.ok) {
         const body = await response.json().catch(() => undefined) as { detail?: unknown } | undefined
-        throw new DeviceRequestError(
+        const error = new DeviceRequestError(
           response.status,
           typeof body?.detail === "string" ? body.detail : `PrimeKit device API returned ${response.status}`,
         )
+        if (response.status === 401) connection.abort(error)
+        throw error
       }
       if (response.status === 204) return undefined as T
       return await response.json() as T
@@ -91,7 +120,7 @@ function basic(server: LocalServer) {
 function localRequest<T>(server: LocalServer, path: string, init: RequestInit = {}): Promise<T> {
   return fetch(`${server.url}${path}`, {
     ...init,
-    signal: init.signal ?? AbortSignal.timeout(15_000),
+    signal: boundedSignal(init.signal),
     headers: { authorization: basic(server), "content-type": "application/json", ...init.headers },
   })
     .then(async (response) => {
@@ -136,13 +165,12 @@ function activeModel() {
 
 async function configurePrimeKitProvider(
   server: LocalServer,
-  account: ReturnType<typeof createPrimeKitAccount>,
+  modelToken: string,
 ) {
-  const key = await account.credential()
-  const api = `${account.baseURL}/v1`
+  const api = `${primeKitAccount.baseURL}/v1`
   await localRequest(server, "/auth/openai", {
     method: "PUT",
-    body: JSON.stringify({ type: "api", key }),
+    body: JSON.stringify({ type: "api", key: modelToken }),
   })
   await localRequest(server, "/global/config", {
     method: "PATCH",
@@ -203,7 +231,8 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
       method: "POST",
       body: JSON.stringify(runtimePayload(access === "full_device", computerProbe)),
     })
-    const deviceClient = createDeviceClient(account.baseURL, runtime.device_token)
+    const connection = new AbortController()
+    const deviceClient = createDeviceClient(account.baseURL, runtime.device_token, connection)
     let grantRoots = new Map<number, string>()
     if (access === "full_device") {
       grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
@@ -231,7 +260,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
 
     let heartbeatStopped = false
     const heartbeat = async () => {
-      while (!controller.signal.aborted && !heartbeatStopped) {
+      while (!controller.signal.aborted && !connection.signal.aborted && !heartbeatStopped) {
         try {
           const enabled = currentPrimeKitAccessProfile() === "full_device"
           if (enabled) checkComputer(false)
@@ -241,6 +270,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
             body: JSON.stringify(runtimePayload(enabled, computerProbe)),
           })
         } catch (error) {
+          if (error instanceof DeviceRequestError && error.status === 401) return
           logger.error("PrimeKit heartbeat failed", {
             message: error instanceof Error ? error.message : String(error),
           })
@@ -250,7 +280,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
     }
     const heartbeatTask = heartbeat()
     try {
-      while (!controller.signal.aborted) {
+      while (!controller.signal.aborted && !connection.signal.aborted) {
         try {
           const enabled = currentPrimeKitAccessProfile() === "full_device"
           if (!enabled) {
@@ -259,7 +289,9 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
           }
           grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
           const commands = await deviceClient.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands?limit=1`)
-          for (const command of commands) await execute(command, grantRoots, root, server, account, deviceClient, logger)
+          for (const command of commands) {
+            await execute(command, grantRoots, root, server, deviceClient, connection.signal, logger)
+          }
         } catch (error) {
           if (error instanceof DeviceRequestError && error.status === 401) throw error
           logger.error("PrimeKit connector poll failed", {
@@ -268,6 +300,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
         }
         await delay(3_000)
       }
+      if (connection.signal.aborted) throw connection.signal.reason
     } finally {
       heartbeatStopped = true
       await heartbeatTask
@@ -300,8 +333,8 @@ async function execute(
   grantRoots: Map<number, string>,
   fallbackRoot: string,
   server: LocalServer,
-  account: ReturnType<typeof createPrimeKitAccount>,
   device: DeviceClient,
+  connectionSignal: AbortSignal,
   logger: Logger,
 ) {
   const root = command.folder_grant_id ? grantRoots.get(command.folder_grant_id) : fallbackRoot
@@ -365,16 +398,33 @@ async function execute(
       method: "POST",
       body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
     })
-  const gateway = await account.request<{ configured: boolean; model: string }>("/v1/gateway/status")
-  if (!gateway.configured) {
+  const modelCredential = await device.request<ModelCredential>(
+    `/desktop-agent/runtimes/${command.runtime_id}/model-token`,
+  )
+  if (!modelCredential.gateway.configured) {
     const message = "Модельный шлюз PrimeKit не настроен на сервере"
     await event("error", { message }).catch(() => undefined)
     await finish(device, command, "error", undefined, message)
     return
   }
   await event("progress", { message: "Кит запустил локального агента", workspace: root }).catch(() => undefined)
+  let localSessionID = command.local_session_id ?? rememberedSession(command.id, root)
+  let executionController: AbortController | undefined
+  let leaseTask: Promise<void> | undefined
+  let leaseFailure: unknown
+  const abortLocalSession = async () => {
+    if (!localSessionID) return
+    await localRequest(
+      server,
+      `/session/${localSessionID}/abort?directory=${encodeURIComponent(root)}`,
+      { method: "POST" },
+    ).catch(() => undefined)
+  }
+  const stopLease = async () => {
+    executionController?.abort()
+    await leaseTask?.catch(() => undefined)
+  }
   try {
-    let localSessionID = command.local_session_id ?? rememberedSession(command.id, root)
     if (localSessionID) {
       const exists = await localRequest<{ id: string }>(
         server,
@@ -402,8 +452,28 @@ async function execute(
       localSessionID = created.id
     }
     rememberSession(command.id, root, localSessionID)
+    executionController = new AbortController()
+    const executionSignal = AbortSignal.any([connectionSignal, executionController.signal])
+    leaseTask = (async () => {
+      while (!executionSignal.aborted) {
+        try {
+          await device.request(`/desktop-agent/commands/${command.id}/lease`, {
+            method: "POST",
+            body: JSON.stringify({ claim_token: command.claim_token }),
+            signal: executionSignal,
+          })
+        } catch (error) {
+          if (!executionSignal.aborted) {
+            leaseFailure = error
+            executionController?.abort(error)
+          }
+          return
+        }
+        await abortableDelay(20_000, executionSignal).catch(() => undefined)
+      }
+    })()
     await event("session", { message: "Локальная сессия подключена", session_id: localSessionID })
-    await configurePrimeKitProvider(server, account)
+    await configurePrimeKitProvider(server, modelCredential.access_token)
     const model = activeModel()
     logger.log("PrimeKit local agent selected", model)
     const localMessageID = `msg_pk_cmd_${command.id}`
@@ -411,11 +481,13 @@ async function execute(
     const existingMessages = await localRequest<Array<{ info?: { id?: string } }>>(
       server,
       `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
+      { signal: executionSignal },
     )
     const alreadySubmitted = existingMessages.some((message) => message.info?.id === localMessageID)
     if (!alreadySubmitted) {
       await localRequest(server, `/session/${localSessionID}/prompt_async?directory=${encodeURIComponent(root)}`, {
         method: "POST",
+        signal: executionSignal,
         body: JSON.stringify({
           messageID: localMessageID,
           agent: "build",
@@ -429,48 +501,54 @@ async function execute(
     let assistantText = ""
     for (let attempt = 0; attempt < 900; attempt++) {
       if (attempt % 2 === 0) {
-        const remote = await device.request<{ status: string }>(`/desktop-agent/device/commands/${command.id}`)
+        const remote = await device.request<{ status: string }>(`/desktop-agent/device/commands/${command.id}`, {
+          signal: executionSignal,
+        })
         if (remote.status === "cancel_requested") {
-          await localRequest(
-            server,
-            `/session/${localSessionID}/abort?directory=${encodeURIComponent(root)}`,
-            { method: "POST" },
-          ).catch(() => undefined)
+          await abortLocalSession()
+          await stopLease()
           await event("cancelled", { message: "Локальная задача остановлена пользователем", session_id: localSessionID })
           await finish(device, command, "cancelled", undefined, "Остановлено пользователем")
           return
         }
       }
-      if (attempt % 15 === 0) {
-        await device.request(`/desktop-agent/commands/${command.id}/lease`, {
-          method: "POST",
-          body: JSON.stringify({ claim_token: command.claim_token }),
-        })
-      }
       const statuses = await localRequest<Record<string, { type: string }>>(
         server,
         `/session/status?directory=${encodeURIComponent(root)}`,
+        { signal: executionSignal },
       )
       const status = statuses[localSessionID]
       const messages = await localRequest<unknown>(
         server,
         `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
+        { signal: executionSignal },
       )
       await mirrorLocalAgentEvents(messages, localMessageID, mirroredParts, event)
       assistantText = textFromMessages(messages, localMessageID)
       if (!status && assistantText) break
-      await delay(1_000)
+      await abortableDelay(1_000, executionSignal)
     }
     if (!assistantText) throw new Error("Local agent completed without a matching assistant response")
+    await stopLease()
     await event("result", { message: assistantText, session_id: localSessionID })
     await finish(device, command, "completed", { assistant_text: assistantText, session_id: localSessionID })
     forgetSession(command.id)
   } catch (error) {
+    await stopLease()
+    const controlLoss = leaseFailure ?? (connectionSignal.aborted ? connectionSignal.reason : undefined)
+    if (controlLoss instanceof DeviceRequestError && [401, 409].includes(controlLoss.status)) {
+      await abortLocalSession()
+      forgetSession(command.id)
+      throw controlLoss
+    }
     const message = error instanceof Error ? error.message : String(error)
     logger.error("PrimeKit command failed", { commandID: command.id, message })
+    await abortLocalSession()
     await event("error", { message }).catch(() => undefined)
-    await finish(device, command, "error", undefined, message)
+    await finish(device, command, "error", undefined, message).catch(() => undefined)
     forgetSession(command.id)
+  } finally {
+    await stopLease()
   }
 }
 
