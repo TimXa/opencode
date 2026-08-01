@@ -20,6 +20,7 @@ import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-comp
 import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
 import { mirrorLocalAgentEvents, type MirroredPart } from "./primekit-command-events"
+import { modelTokenRequest } from "./primekit-connector-protocol"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -486,9 +487,8 @@ async function execute(
       method: "POST",
       body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
     })
-  const modelCredential = await device.request<ModelCredential>(
-    `/desktop-agent/runtimes/${command.runtime_id}/model-token`,
-  )
+  const credentialRequest = modelTokenRequest(command.runtime_id)
+  const modelCredential = await device.request<ModelCredential>(credentialRequest.path, credentialRequest.init)
   if (!modelCredential.gateway.configured) {
     const message = "Модельный шлюз PrimeKit не настроен на сервере"
     await event("error", { message }).catch(() => undefined)
