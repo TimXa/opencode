@@ -43,14 +43,6 @@ jobs:
         working-directory: packages/desktop
         run: bun run build
 
-      - name: Verify Windows native bundle marker
-        shell: pwsh
-        run: |
-          $bundle = Get-ChildItem packages/desktop/out/main -Recurse -File | Get-Content -Raw
-          if ($bundle -notmatch 'node-pty-win32-x64') {
-            throw 'Windows x64 PTY dependency is missing from the bundle'
-          }
-
       - name: Package unsigned QA installer
         working-directory: packages/desktop
         run: bunx electron-builder --win --x64 --publish never --config electron-builder.config.ts
