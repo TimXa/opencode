@@ -40,7 +40,10 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
   })
 
   const daemonStateHome = found?.stateHome ?? stateHome
-  const url = await run(binary, ["service", "start"], logger, { stateHome: daemonStateHome })
+  // The Computer Use MCP URL and bearer token are regenerated on every desktop launch.
+  // A surviving daemon keeps the previous process environment, so restart it instead
+  // of silently reusing a service that can no longer reach the current MCP server.
+  const url = await run(binary, ["service", found ? "restart" : "start"], logger, { stateHome: daemonStateHome })
   const password = await run(binary, ["service", "get", "password"], logger, {
     redact: true,
     stateHome: daemonStateHome,
