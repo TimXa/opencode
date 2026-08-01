@@ -26,12 +26,12 @@ type Space = {
   icon_index?: number | null
   project_type?: string | null
 }
-type AskResponse = { task_id: number | null; user_message_id: number; status: string }
-type ExecutionTarget = {
-  kind: "cloud" | "desktop"
-  runtime_id: number | null
-  folder_grant_id: number | null
-  available: boolean
+type UniversalTurnResponse = {
+  task_id: number | null
+  user_message_id: number
+  status: string
+  executor_kind: "cloud" | "desktop"
+  desktop_command_id?: number | null
 }
 type ChatLocation = { kind: "general"; chatID: number } | { kind: "space"; spaceID: number; chatID: number }
 type ChatMessage = {
@@ -500,35 +500,14 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         const input = JSON.parse((await body(request)).toString() || "{}") as { messageID?: string; parts?: Array<{ type?: string; text?: string }> }
         const prompt = (input.parts ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n").trim()
         if (!prompt) return json(response, 400, { error: "Добавьте текст" })
-        const target = await primeKitAccount.request<ExecutionTarget>(`/desktop-agent/chats/${id}/target`)
-        const task = target.kind === "desktop"
-          ? await primeKitAccount.request<{ id: number; agent_task_id: number | null }>("/desktop-agent/commands", {
-              method: "POST",
-              body: JSON.stringify({
-                runtime_id: target.runtime_id,
-                chat_id: id,
-                client_message_id: input.messageID,
-                folder_grant_id: target.folder_grant_id,
-                action: "agent_run",
-                kind: "chat_turn",
-                approval_policy: "allow",
-                args: { prompt },
-                requested_by_device: "primekit-desktop",
-              }),
-            }).then((command) => ({
-              task_id: command.agent_task_id,
-              user_message_id: 0,
-              status: "queued",
-              desktop_command_id: command.id,
-            }))
-          : await primeKitAccount.request<AskResponse>(chatPath(location, "/ask"), {
-              method: "POST",
-              body: JSON.stringify({
-                message: prompt,
-                client_message_id: input.messageID,
-                reasoning_effort: "high",
-              }),
-            })
+        const task = await primeKitAccount.request<UniversalTurnResponse>(`/desktop-agent/chats/${id}/turn`, {
+          method: "POST",
+          body: JSON.stringify({
+            message: prompt,
+            client_message_id: input.messageID,
+            reasoning_effort: "high",
+          }),
+        })
         const chat = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
         const persistedUser = [...(chat.messages ?? [])].reverse().find((item) => item.role === "user")
         if (input.messageID && persistedUser && input.messageID !== messageID(persistedUser)) {
@@ -542,7 +521,7 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         if (!task.task_id) return json(response, 204)
         statuses.set(sid, { type: "busy" })
         emit("session.status", { sessionID: sid, status: { type: "busy" } })
-        if ("desktop_command_id" in task && typeof task.desktop_command_id === "number") {
+        if (task.executor_kind === "desktop" && typeof task.desktop_command_id === "number") {
           void watchDesktopCommand(chat, location, task.desktop_command_id)
         } else {
           void streamTask(chat, location, task.task_id, persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`)
