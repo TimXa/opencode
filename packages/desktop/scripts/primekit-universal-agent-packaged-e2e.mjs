@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { basename, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 
 const executable = resolve(process.argv[2] ?? "")
@@ -192,8 +192,9 @@ try {
         for (const summary of chats.slice(0, 30)) {
           const chat = await request(`/chats/${summary.id}`, { headers: auth })
           const completedEveryPrompt = markers.every(path => {
+            const markerName = basename(path)
             const promptIndex = chat.messages.findIndex(message => (
-              message.role === "user" && message.content?.includes(path)
+              message.role === "user" && message.content?.includes(markerName)
             ))
             if (promptIndex < 0) return false
             const nextUserOffset = chat.messages.slice(promptIndex + 1).findIndex(message => message.role === "user")
