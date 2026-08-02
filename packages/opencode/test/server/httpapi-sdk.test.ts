@@ -805,6 +805,44 @@ describe("HttpApi SDK", () => {
     ),
   )
 
+  serverPathParity("runs three persistent tool turns with PrimeKit command message IDs", (serverPath) =>
+    withFakeLlm(serverPath, ({ sdk, llm, directory }) =>
+      Effect.gen(function* () {
+        const session = yield* capture(() =>
+          sdk.session.create({
+            title: "persistent PrimeKit U1 U2 U3",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          }),
+        )
+        const sessionID = String(record(session.data).id)
+        const turns = [9, 10, 11]
+
+        for (const commandID of turns) {
+          const marker = path.join(directory, `primekit-turn-${commandID}.txt`)
+          yield* llm.tool("bash", { command: `printf ${commandID} > ${JSON.stringify(marker)}` })
+          yield* llm.text(`reply-${commandID}`)
+          const prompt = yield* call(() =>
+            sdk.session.prompt({
+              sessionID,
+              messageID: `msg_pk_cmd_${commandID}`,
+              agent: "build",
+              model: { providerID: "test", modelID: "test-model" },
+              parts: [{ type: "text", text: `U${commandID}` }],
+            }),
+          ).pipe(Effect.timeout("5 seconds"))
+          expect(prompt.response.status).toBe(200)
+          expect(JSON.stringify(prompt.data)).toContain(`reply-${commandID}`)
+        }
+
+        expect(yield* llm.calls).toBe(6)
+        const messages = yield* capture(() => sdk.session.messages({ sessionID }))
+        const rows = array(messages.data)
+        expect(rows.filter((item) => record(record(item).info).role === "user")).toHaveLength(3)
+        expect(rows.filter((item) => record(record(item).info).role === "assistant")).toHaveLength(6)
+      }),
+    ),
+  )
+
   httpapi(
     "includes project skills in REST API prompt context",
     withFakeLlmProject("default", { setup: writeProjectSkill }, ({ sdk, llm }) =>

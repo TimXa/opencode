@@ -43,6 +43,12 @@
 - Desktop `7c8b1c4`: Windows QA run `30733437581` — clean NSIS install → installed Computer Use →
   browser/cloud → installed local agent → restart → cloud sync → silent uninstall — pass.
 - Последний Windows artifact `primekit-windows-x64-unsigned-qa` (`8828838118`, 333 452 979 bytes) загружен на 14 дней.
+- Persistent-session regression: прежний цикл терял prompt, сохранённый во время активного Runner
+  (`ожидалось 2 provider calls, получено 1`); после pin-and-drain исправления — 56 pass, 1 skip.
+- HTTP regression с PrimeKit ID `msg_pk_cmd_9 → 10 → 11`: три последовательных tool round-trip,
+  6 provider calls, 3 user + 6 assistant messages — pass.
+- Последний установленный Windows Terminal gate ещё не подтверждён: runs `30734033150`–`30736253537`
+  зависали на третьем ходе из-за найденной потери queued prompt; требуется повтор после новой сборки.
 
 ## P0 — до тестовой раздачи
 
@@ -65,6 +71,8 @@
   - [x] сохранение session после restart;
   - [x] ровно один cloud result на каждый turn.
 - [ ] Выполнить реальную Terminal-команду из установленного Windows-клиента (Windows PTY x64 уже проверен как PE runtime).
+  - [x] Найти и закрыть гонку persistent session, из-за которой третий ход не доходил до provider.
+  - [ ] Повторить clean NSIS install → file → restart → Terminal на сборке с исправлением.
 - [ ] Провести ручной cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
 - [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
