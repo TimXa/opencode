@@ -18,11 +18,15 @@ $vars = @{
   endpoint = $env:AZURE_TRUSTED_SIGNING_ENDPOINT
   account = $env:AZURE_TRUSTED_SIGNING_ACCOUNT_NAME
   profile = $env:AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE
+  publisher = $env:PRIMEKIT_WINDOWS_PUBLISHER_NAME
 }
 
 if ($vars.Values | Where-Object { -not $_ }) {
-  Write-Host "Skipping Windows signing because Azure Artifact Signing is not configured"
-  exit 0
+  if ($env:PRIMEKIT_UNSIGNED_QA -eq "1") {
+    Write-Host "Skipping Windows signing for explicitly unsigned QA build"
+    exit 0
+  }
+  throw "PrimeKit production Windows signing is not configured"
 }
 
 $moduleVersion = "0.5.8"
@@ -68,3 +72,13 @@ $params = @{
 }
 
 Invoke-TrustedSigning @params
+
+foreach ($file in $files) {
+  $signature = Get-AuthenticodeSignature $file
+  if ($signature.Status -ne "Valid") {
+    throw "Invalid signature for ${file}: $($signature.Status)"
+  }
+  if ($signature.SignerCertificate.Subject -ne $vars.publisher) {
+    throw "Unexpected signer for ${file}: $($signature.SignerCertificate.Subject)"
+  }
+}

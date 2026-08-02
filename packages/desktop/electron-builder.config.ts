@@ -22,6 +22,17 @@ async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
 
+  const signingConfigured = [
+    process.env.AZURE_TRUSTED_SIGNING_ENDPOINT,
+    process.env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME,
+    process.env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE,
+    process.env.PRIMEKIT_WINDOWS_PUBLISHER_NAME,
+  ].every(Boolean)
+  if (!signingConfigured) {
+    if (process.env.PRIMEKIT_UNSIGNED_QA === "1") return
+    throw new Error("PrimeKit production Windows signing is not configured")
+  }
+
   await execFileAsync(
     "pwsh",
     ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", signScript, configuration.path],
@@ -90,9 +101,10 @@ const getBase = (appId: string): Configuration => ({
     icon: `resources/icons/icon.ico`,
     signtoolOptions: {
       sign: signWindows,
+      publisherName: process.env.PRIMEKIT_WINDOWS_PUBLISHER_NAME,
     },
     target: ["nsis"],
-    verifyUpdateCodeSignature: false,
+    verifyUpdateCodeSignature: true,
   },
   nsis: {
     oneClick: true,

@@ -29,6 +29,19 @@ for (const channel of channels) {
   })
 }
 
+test("requires signed Windows updates and records the trusted publisher", async () => {
+  const previous = process.env.PRIMEKIT_WINDOWS_PUBLISHER_NAME
+  process.env.PRIMEKIT_WINDOWS_PUBLISHER_NAME = "CN=PrimeKit Test, O=PrimeKit"
+  const module = await import("./electron-builder.config.ts?signed-updates")
+  const config = module.default as Configuration
+
+  if (previous === undefined) delete process.env.PRIMEKIT_WINDOWS_PUBLISHER_NAME
+  else process.env.PRIMEKIT_WINDOWS_PUBLISHER_NAME = previous
+
+  expect(config.win?.verifyUpdateCodeSignature).toBe(true)
+  expect(config.win?.signtoolOptions?.publisherName).toBe("CN=PrimeKit Test, O=PrimeKit")
+})
+
 test("keeps a hidden prod launcher for old Linux pins", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "prod"
