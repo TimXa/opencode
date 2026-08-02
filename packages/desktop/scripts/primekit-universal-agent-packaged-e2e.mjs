@@ -11,6 +11,7 @@ const baseURL = process.env.PRIMEKIT_E2E_BASE_URL ?? "http://127.0.0.1:18000"
 const email = "universal-e2e@primekit.test"
 const expected = "E2E_OK: файл создан локальным агентом и ответ синхронизирован в облачный чат."
 const markerContent = "primekit-universal-agent-e2e\n"
+const terminalMarkerContent = "primekit-terminal-e2e"
 const waitTimeout = Number(process.env.PRIMEKIT_NATIVE_E2E_TIMEOUT_MS ?? 240_000)
 const temporary = mkdtempSync(join(tmpdir(), "primekit-native-e2e-"))
 const workspaceInput = join(temporary, "workspace")
@@ -21,6 +22,7 @@ mkdirSync(workspaceInput)
 const workspace = realpathSync(workspaceInput)
 const marker = join(workspace, "E2E_NATIVE_MARKER.txt")
 const restartMarker = join(workspace, "E2E_NATIVE_RESTART_MARKER.txt")
+const terminalMarker = join(workspace, "E2E_NATIVE_TERMINAL_MARKER.txt")
 const platform = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform
 const deviceID = `${platform}-e2e-${Date.now()}`
 const uiMode = process.env.PRIMEKIT_NATIVE_E2E_UI === "1"
@@ -225,13 +227,14 @@ try {
     headers: auth,
     body: JSON.stringify({ kind: "desktop", runtime_id: runtime.id, folder_grant_id: grant.id }),
   })
-  const runTurn = async (targetMarker, sequence) => {
+  const runTurn = async (targetMarker, sequence, tool = "write") => {
     const admittedAt = Date.now()
+    const markerKey = tool === "terminal" ? "PRIMEKIT_NATIVE_TERMINAL_MARKER" : "PRIMEKIT_NATIVE_MARKER"
     const turn = await request(`/desktop-agent/chats/${chat.id}/turn`, {
       method: "POST",
       headers: auth,
       body: JSON.stringify({
-        message: `Выполни нативную проверку локального write tool.\nPRIMEKIT_NATIVE_MARKER=${targetMarker}`,
+        message: `Выполни нативную проверку локального ${tool} tool.\n${markerKey}=${targetMarker}`,
         client_message_id: `native-e2e-${sequence}-${Date.now()}`,
       }),
     })
@@ -247,7 +250,8 @@ try {
     if (!Number.isFinite(wakeLatencyMs) || wakeLatencyMs > 10_000) {
       throw new Error(`Packaged device wakeup took ${wakeLatencyMs}ms; SSE delivery is not working`)
     }
-    if (!existsSync(targetMarker) || readFileSync(targetMarker, "utf8") !== markerContent) {
+    const expectedMarker = tool === "terminal" ? terminalMarkerContent : markerContent
+    if (!existsSync(targetMarker) || readFileSync(targetMarker, "utf8").trimEnd() !== expectedMarker.trimEnd()) {
       throw new Error(`Packaged local agent did not create marker ${sequence}`)
     }
     return { ...command, wake_latency_ms: wakeLatencyMs }
@@ -267,9 +271,13 @@ try {
   if (restartedCommand.result?.session_id !== command.result.session_id) {
     throw new Error("Packaged restart lost the local agent session")
   }
+  const terminalCommand = await runTurn(terminalMarker, 3, "terminal")
+  if (terminalCommand.result?.session_id !== command.result.session_id) {
+    throw new Error("Packaged Terminal turn lost the local agent session")
+  }
   const canonical = await request(`/chats/${chat.id}`, { headers: auth })
   const assistant = canonical.messages.filter((message) => message.role === "assistant" && message.content === expected)
-  if (assistant.length !== 2) throw new Error("Canonical cloud chat did not converge after packaged restart")
+  if (assistant.length !== 3) throw new Error("Canonical cloud chat did not converge after packaged Terminal turn")
 
   passed = true
   console.log(JSON.stringify({
@@ -281,7 +289,9 @@ try {
     restarted_command_id: restartedCommand.id,
     marker,
     restart_marker: restartMarker,
+    terminal_marker: terminalMarker,
     restart_verified: true,
+    terminal_verified: true,
     wake_latency_ms: command.wake_latency_ms,
     restart_wake_latency_ms: restartedCommand.wake_latency_ms,
   }))
