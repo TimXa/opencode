@@ -60,6 +60,11 @@
 - Browser coordinator + два изолированных экземпляра packaged Mac app на общей PostgreSQL-среде:
   один cloud chat прошёл runtime A → runtime B → runtime A; три локальных marker-файла и ровно
   три канонических ответа — pass. Это проверяет UI-переключение хоста, но не заменяет физический Windows gate.
+- Физический browser → packaged Mac → установленный Windows x64 → packaged Mac прогон:
+  browser coordinator вернул `passed`, `chat_id=1`, runtime sequence `[1, 2, 1]`; команды в PostgreSQL
+  завершились на Mac, Windows и снова Mac, а Windows `tool_result` подтвердил локальную запись файла.
+- Windows shared-backend QA run `30743954115` — success: сборка x64, clean NSIS install, packaged
+  Computer Use, cross-device worker, silent uninstall и artifact upload прошли на `windows-2025`.
 
 ## P0 — до тестовой раздачи
 
@@ -84,12 +89,12 @@
 - [x] Выполнить реальную Terminal-команду из установленного Windows-клиента (Windows PTY x64 проверен как PE runtime).
   - [x] Найти и закрыть гонку persistent session, из-за которой третий ход не доходил до provider.
   - [x] Повторить clean NSIS install → file → restart → Terminal на сборке с исправлением.
-- [ ] Провести реальный cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
+- [x] Провести реальный cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
   - [x] Протокольный PostgreSQL system E2E Mac → Windows → Mac в одном cloud chat.
   - [x] Packaged device-worker для назначенных Mac/Windows turns и browser UI coordinator.
   - [x] Packaged Mac worker → локальный write → canonical cloud result на общей PostgreSQL-среде.
   - [x] Browser UI → два изолированных packaged workers → A → B → A в одном cloud chat.
-  - [ ] Одновременно запустить установленные Mac и Windows workers против одного доступного backend и пройти UI coordinator.
+  - [x] Одновременно запустить установленные Mac и Windows workers против одного доступного backend и пройти UI coordinator.
 - [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
 ## P0 — до публичного релиза
