@@ -112,11 +112,31 @@ jobs:
           }
           Get-Item $installer, $app | Select-Object Name, Length, VersionInfo
 
-      - name: Smoke packaged Computer Use runtime
-        working-directory: packages/desktop
-        run: bun run smoke:computer:packaged -- dist/win-unpacked/Кит.exe
+      - name: Install QA NSIS in clean user profile
+        id: install
+        shell: pwsh
+        run: |
+          $installer = (Resolve-Path 'packages/desktop/dist/kit-desktop-win-x64.exe').Path
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $existing = @(Get-ChildItem $programs -Filter 'Кит.exe' -File -Recurse -ErrorAction SilentlyContinue)
+          if ($existing.Count -ne 0) {
+            throw "Windows QA runner is not clean: $($existing.FullName -join ', ')"
+          }
+          $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS installer exited with $($process.ExitCode)" }
+          $installed = @(Get-ChildItem $programs -Filter 'Кит.exe' -File -Recurse -ErrorAction SilentlyContinue)
+          if ($installed.Count -ne 1) {
+            throw "Expected exactly one installed Кит.exe, found $($installed.Count)"
+          }
+          "PRIMEKIT_INSTALLED_EXE=$($installed[0].FullName)" >> $env:GITHUB_ENV
+          "PRIMEKIT_INSTALL_DIR=$($installed[0].DirectoryName)" >> $env:GITHUB_ENV
+          $installed[0] | Select-Object FullName, Length, VersionInfo
 
-      - name: E2E browser account to packaged Windows agent
+      - name: Smoke installed Computer Use runtime
+        working-directory: packages/desktop
+        run: bun run smoke:computer:packaged -- "$env:PRIMEKIT_INSTALLED_EXE"
+
+      - name: E2E browser account to installed Windows agent
         shell: pwsh
         env:
           PRIMEKIT_DEV_AUTH: "1"
@@ -153,7 +173,7 @@ jobs:
             if (-not $ready) { throw 'Portable PrimeKit backend did not become ready' }
             Push-Location packages/desktop
             try {
-              bun run smoke:universal-agent:packaged -- dist/win-unpacked/Кит.exe
+              bun run smoke:universal-agent:packaged -- "$env:PRIMEKIT_INSTALLED_EXE"
             } finally {
               Pop-Location
             }
@@ -164,7 +184,23 @@ jobs:
             Get-Content $backendOut, "$backendOut.err", $providerOut, "$providerOut.err" -ErrorAction SilentlyContinue
           }
 
+      - name: Uninstall QA client
+        if: always() && steps.install.outcome == 'success'
+        shell: pwsh
+        run: |
+          Get-Process -Name 'Кит' -ErrorAction SilentlyContinue | Stop-Process -Force
+          $uninstaller = Get-ChildItem $env:PRIMEKIT_INSTALL_DIR -Filter 'Uninstall*.exe' -File -ErrorAction Stop |
+            Select-Object -First 1
+          if (-not $uninstaller) { throw "Installed QA client has no NSIS uninstaller" }
+          $process = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS uninstaller exited with $($process.ExitCode)" }
+          1..30 | ForEach-Object {
+            if (Test-Path $env:PRIMEKIT_INSTALLED_EXE) { Start-Sleep -Seconds 1 }
+          }
+          if (Test-Path $env:PRIMEKIT_INSTALLED_EXE) { throw "Кит.exe remained after uninstall" }
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: primekit-windows-x64-unsigned-qa
           if-no-files-found: error
