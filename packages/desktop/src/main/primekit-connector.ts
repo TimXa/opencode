@@ -237,7 +237,7 @@ function canonicalContext(command: Command) {
 }
 
 function activeModel() {
-  return { providerID: "openai", modelID: "kit" }
+  return { providerID: "kit", modelID: "kit" }
 }
 
 async function configurePrimeKitProvider(
@@ -245,17 +245,18 @@ async function configurePrimeKitProvider(
   modelToken: string,
 ) {
   const api = `${primeKitAccount.baseURL}/v1`
-  await localRequest(server, "/auth/openai", {
+  await localRequest(server, "/auth/kit", {
     method: "PUT",
     body: JSON.stringify({ type: "api", key: modelToken }),
   })
   await localRequest(server, "/global/config", {
     method: "PATCH",
     body: JSON.stringify({
-      model: "openai/kit",
+      model: "kit/kit",
+      enabled_providers: ["kit"],
       permission: "allow",
       provider: {
-        openai: {
+        kit: {
           name: "Кит",
           npm: "@ai-sdk/openai-compatible",
           api,

@@ -100,8 +100,13 @@ export function getPrimeKitDeviceIdentity() {
   const store = getStore()
   const saved = store.get(PRIMEKIT_DEVICE_ID_KEY)
   const platform = primeKitPlatform()
+  const nativeE2EDeviceID = UNSIGNED_QA && app.isPackaged
+    ? process.env.PRIMEKIT_NATIVE_E2E_DEVICE_ID
+    : undefined
   const id =
-    typeof saved === "string" && saved.length >= 3
+    typeof nativeE2EDeviceID === "string" && nativeE2EDeviceID.startsWith(`${platform}-e2e-`)
+      ? nativeE2EDeviceID
+      : typeof saved === "string" && saved.length >= 3
       ? saved
       : platform === "macos"
         ? legacyMacDeviceID()

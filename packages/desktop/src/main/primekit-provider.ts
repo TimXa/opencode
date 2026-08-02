@@ -7,17 +7,21 @@ type ComputerMcp = {
 }
 
 export function getPrimeKitProviderConfig(computer?: ComputerMcp) {
+  const api = `${process.env.PRIMEKIT_ACCOUNT_API_URL ?? "https://primekit-job.ru/api"}/v1`
   return JSON.stringify({
-    model: "openai/gpt-5.4",
-    enabled_providers: ["openai"],
+    model: "kit/kit",
+    enabled_providers: ["kit"],
     share: "disabled",
     autoupdate: false,
     ...(computer ? { mcp: { primekit_computer: computer } } : {}),
     provider: {
-      openai: {
+      kit: {
         name: "Кит",
-        whitelist: ["gpt-5.4"],
-        models: { "gpt-5.4": { name: "Кит" } },
+        npm: "@ai-sdk/openai-compatible",
+        api,
+        options: { baseURL: api },
+        whitelist: ["kit"],
+        models: { kit: { name: "Кит" } },
       },
     },
   })

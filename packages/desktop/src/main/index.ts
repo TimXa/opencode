@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, session } from "electron"
@@ -67,6 +67,8 @@ const APP_IDS: Record<string, string> = {
   prod: "ru.primekit.kit.desktop",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
+const UNSIGNED_QA = import.meta.env.PRIMEKIT_UNSIGNED_QA
+const NATIVE_E2E = Boolean(UNSIGNED_QA && app.isPackaged && process.env.PRIMEKIT_NATIVE_E2E === "1")
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
@@ -149,9 +151,14 @@ const main = Effect.gen(function* () {
   })()
   app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Кит Dev")
   app.setAppUserModelId(appId)
+  const nativeE2EUserData = process.env.PRIMEKIT_NATIVE_E2E_USER_DATA
   app.setPath(
     "userData",
-    onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId),
+    onboardingTestRoot
+      ? join(onboardingTestRoot, "desktop")
+      : NATIVE_E2E && nativeE2EUserData && isAbsolute(nativeE2EUserData)
+        ? nativeE2EUserData
+        : join(app.getPath("appData"), appId),
   )
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
@@ -212,7 +219,7 @@ const main = Effect.gen(function* () {
   app.commandLine.appendSwitch("enable-features", features ? `${jsCallStackFeature},${features}` : jsCallStackFeature)
   if (!app.isPackaged) app.commandLine.appendSwitch("remote-debugging-port", "9222")
 
-  if (!app.requestSingleInstanceLock()) {
+  if (!NATIVE_E2E && !app.requestSingleInstanceLock()) {
     app.quit()
     return
   }
@@ -270,6 +277,7 @@ const main = Effect.gen(function* () {
   const serverReady = Deferred.makeUnsafe<ServerReadyData, unknown>()
 
   yield* Effect.promise(() => app.whenReady())
+  if (NATIVE_E2E) yield* Effect.promise(() => finishFirstLaunchOnboarding(false))
   // The renderer lives at a stable oc:// URL. Never let Chromium keep an old
   // interface bundle after a desktop update.
   yield* Effect.promise(() => session.defaultSession.clearCache())

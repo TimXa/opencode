@@ -1,6 +1,8 @@
-import { dialog } from "electron"
+import { app, dialog } from "electron"
 import { getStore } from "./store"
 import { PRIMEKIT_ACCESS_PROFILE_KEY, PRIMEKIT_COMPUTER_PERMISSION_STATE_KEY } from "./store-keys"
+
+const UNSIGNED_QA = import.meta.env.PRIMEKIT_UNSIGNED_QA
 
 export type PrimeKitAccessProfile = "full_device" | "restricted"
 export type PrimeKitComputerPermissionState = "not_requested" | "incomplete" | "ready"
@@ -20,6 +22,10 @@ export function setPrimeKitComputerPermissionState(state: PrimeKitComputerPermis
 }
 
 export async function requestPrimeKitFullDeviceAccess(force = false): Promise<PrimeKitAccessProfile> {
+  if (UNSIGNED_QA && app.isPackaged && process.env.PRIMEKIT_NATIVE_E2E === "1") {
+    getStore().set(PRIMEKIT_ACCESS_PROFILE_KEY, "full_device")
+    return "full_device"
+  }
   const current = currentPrimeKitAccessProfile()
   if (current === "full_device") return current
   if (current === "restricted" && !force) return current

@@ -1314,6 +1314,7 @@ const layer = Layer.effect(
                 yield* sessions.updateMessage(handle.message)
                 return "break" as const
               }
+              return "break" as const
             }
 
             if (result === "stop") return "break" as const

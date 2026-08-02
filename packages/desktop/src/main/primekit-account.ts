@@ -1,6 +1,6 @@
 import { app, safeStorage } from "electron"
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { getStore, removeStoreFileIfEmpty } from "./store"
 
 const STORE = "primekit.account.dat"
@@ -36,6 +36,17 @@ function readPlainTokens(): AuthTokens | undefined {
   }
 }
 
+function readNativeE2ETokens(): AuthTokens | undefined {
+  const path = process.env.PRIMEKIT_NATIVE_E2E_TOKEN_FILE
+  if (!UNSIGNED_QA || !app.isPackaged || !path || !isAbsolute(path)) return
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as unknown
+    return validTokens(value) ? value : undefined
+  } catch {
+    return
+  }
+}
+
 function securePath() {
   return join(app.getPath("userData"), SECURE_SESSION_FILE)
 }
@@ -59,6 +70,8 @@ function readTokens(): AuthTokens | undefined {
   // signed releases and Windows use the platform encrypted store and migrate it once.
   getStore(STORE).delete(KEY)
   void removeStoreFileIfEmpty(STORE)
+  const nativeE2ETokens = readNativeE2ETokens()
+  if (nativeE2ETokens) return nativeE2ETokens
   if (!secureSessionEnabled()) return readPlainTokens()
   try {
     if (!safeStorage.isEncryptionAvailable()) return
