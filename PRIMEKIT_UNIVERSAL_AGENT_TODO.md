@@ -40,6 +40,9 @@
 - Desktop `6e09173`: Windows QA run `30732881834` на настоящем `windows-2025` — pass.
 - Windows QA: x64 NSIS собран; PE/native runtime, packaged Computer Use и browser → cloud → local agent → cloud E2E — pass.
 - Windows QA artifact `primekit-windows-x64-unsigned-qa` (`8828656646`, 333 453 158 bytes) загружен на 14 дней.
+- Desktop `7c8b1c4`: Windows QA run `30733437581` — clean NSIS install → installed Computer Use →
+  browser/cloud → installed local agent → restart → cloud sync → silent uninstall — pass.
+- Последний Windows artifact `primekit-windows-x64-unsigned-qa` (`8828838118`, 333 452 979 bytes) загружен на 14 дней.
 
 ## P0 — до тестовой раздачи
 
@@ -53,14 +56,15 @@
   - [x] SSE wakeup;
   - [x] сохранение session после restart;
   - [x] ровно один cloud result на каждый turn.
-- [ ] Подтвердить после чистой установки Windows NSIS-клиента:
-  - [ ] регистрацию runtime;
-  - [ ] scoped folder grant;
-  - [ ] локальные file и Terminal tools;
-  - [ ] Computer Use screenshot/input;
-  - [ ] SSE wakeup;
-  - [ ] сохранение session после restart;
-  - [ ] ровно один cloud result.
+- [x] Подтвердить чистую установку, запуск и штатное удаление Windows NSIS-клиента.
+  - [x] регистрацию runtime;
+  - [x] scoped folder grant;
+  - [x] локальный file tool;
+  - [x] Computer Use screenshot/input;
+  - [x] SSE wakeup;
+  - [x] сохранение session после restart;
+  - [x] ровно один cloud result на каждый turn.
+- [ ] Выполнить реальную Terminal-команду из установленного Windows-клиента (Windows PTY x64 уже проверен как PE runtime).
 - [ ] Провести ручной cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
 - [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
