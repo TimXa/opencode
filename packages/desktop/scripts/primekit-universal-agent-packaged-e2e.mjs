@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -41,7 +41,17 @@ function canonicalPath(value) {
 }
 
 const samePath = (left, right) => (
-  typeof left === "string" && typeof right === "string" && canonicalPath(left) === canonicalPath(right)
+  typeof left === "string" && typeof right === "string" && (
+    canonicalPath(left) === canonicalPath(right) || (() => {
+      try {
+        const leftStat = statSync(left, { bigint: true })
+        const rightStat = statSync(right, { bigint: true })
+        return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino
+      } catch {
+        return false
+      }
+    })()
+  )
 )
 
 async function request(path, init = {}, expectedStatus = 200) {
@@ -138,9 +148,12 @@ try {
     const runtime = await waitFor("packaged UI runtime registration", async () => {
       const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
       return runtimes.find((item) => (
-        item.device_id === deviceID && samePath(item.workspace_path, workspace) && item.status === "online"
+        item.device_id === deviceID && item.status === "online"
       ))
     })
+    if (!samePath(runtime.workspace_path, workspace)) {
+      throw new Error(`Packaged UI runtime registered the wrong workspace: ${runtime.workspace_path}`)
+    }
     await verifyComputerCapability(runtime.id, auth)
     const grant = await waitFor("packaged UI workspace grant", async () => {
       const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
@@ -195,9 +208,12 @@ try {
   const runtime = await waitFor("packaged runtime registration", async () => {
     const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
     return runtimes.find((item) => (
-      item.device_id === deviceID && samePath(item.workspace_path, workspace) && item.status === "online"
+      item.device_id === deviceID && item.status === "online"
     ))
   })
+  if (!samePath(runtime.workspace_path, workspace)) {
+    throw new Error(`Packaged runtime registered the wrong workspace: ${runtime.workspace_path}`)
+  }
   await verifyComputerCapability(runtime.id, auth)
   const grant = await waitFor("packaged workspace grant", async () => {
     const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
