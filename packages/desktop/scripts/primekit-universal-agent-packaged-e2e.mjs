@@ -23,6 +23,7 @@ const marker = join(workspace, "E2E_NATIVE_MARKER.txt")
 const restartMarker = join(workspace, "E2E_NATIVE_RESTART_MARKER.txt")
 const deviceID = `${process.platform === "darwin" ? "macos" : process.platform}-e2e-${Date.now()}`
 const uiMode = process.env.PRIMEKIT_NATIVE_E2E_UI === "1"
+const requireComputer = process.env.PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER === "1"
 const readyFile = process.env.PRIMEKIT_NATIVE_E2E_READY_FILE
 mkdirSync(userData)
 for (const name of ["data", "config", "cache", "state"]) mkdirSync(join(xdgRoot, name), { recursive: true })
@@ -49,6 +50,15 @@ async function waitFor(label, read) {
     await delay(1_000)
   }
   throw new Error(`Timed out waiting for ${label}; last=${JSON.stringify(latest)}`)
+}
+
+async function verifyComputerCapability(runtimeID, auth) {
+  if (!requireComputer) return
+  await waitFor("packaged Computer Use screenshot and input probe", async () => {
+    const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
+    const runtime = runtimes.find((item) => item.id === runtimeID && item.status === "online")
+    return runtime?.capabilities?.includes("computer_use") ? runtime : undefined
+  })
 }
 
 let child
@@ -115,6 +125,7 @@ try {
       const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
       return runtimes.find((item) => item.workspace_path === workspace && item.status === "online")
     })
+    await verifyComputerCapability(runtime.id, auth)
     const grant = await waitFor("packaged UI workspace grant", async () => {
       const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
       return grants.find((item) => item.active && item.root_path_display === workspace)
@@ -169,6 +180,7 @@ try {
     const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
     return runtimes.find((item) => item.workspace_path === workspace && item.status === "online")
   })
+  await verifyComputerCapability(runtime.id, auth)
   const grant = await waitFor("packaged workspace grant", async () => {
     const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
     return grants.find((item) => item.active && item.root_path_display === workspace)

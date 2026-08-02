@@ -126,6 +126,7 @@ jobs:
           PRIMEKIT_LLM_MODEL: e2e/tool-model
           JWT_SECRET: portable-e2e-secret
           PRIMEKIT_E2E_BASE_URL: http://127.0.0.1:18000
+          PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER: "1"
         run: |
           $backend = (Resolve-Path 'primekit-backend-source/MinecraftAI_Backend').Path
           $database = (Join-Path $env:RUNNER_TEMP 'primekit-native-e2e.db').Replace('\', '/')
