@@ -621,7 +621,7 @@ async function execute(
     let promptFailure: unknown
     let promptTask: Promise<void> | undefined
     if (!alreadySubmitted) {
-      promptTask = localRequest(server, `/session/${localSessionID}/prompt?directory=${encodeURIComponent(root)}`, {
+      promptTask = localRequest(server, `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}`, {
         method: "POST",
         signal: executionSignal,
         body: JSON.stringify({
