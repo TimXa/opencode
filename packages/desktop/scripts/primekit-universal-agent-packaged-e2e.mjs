@@ -21,7 +21,8 @@ mkdirSync(workspaceInput)
 const workspace = realpathSync(workspaceInput)
 const marker = join(workspace, "E2E_NATIVE_MARKER.txt")
 const restartMarker = join(workspace, "E2E_NATIVE_RESTART_MARKER.txt")
-const deviceID = `${process.platform === "darwin" ? "macos" : process.platform}-e2e-${Date.now()}`
+const platform = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform
+const deviceID = `${platform}-e2e-${Date.now()}`
 const uiMode = process.env.PRIMEKIT_NATIVE_E2E_UI === "1"
 const requireComputer = process.env.PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER === "1"
 const readyFile = process.env.PRIMEKIT_NATIVE_E2E_READY_FILE
