@@ -24,10 +24,18 @@ const marker = join(workspace, "E2E_NATIVE_MARKER.txt")
 const restartMarker = join(workspace, "E2E_NATIVE_RESTART_MARKER.txt")
 const terminalMarker = join(workspace, "E2E_NATIVE_TERMINAL_MARKER.txt")
 const platform = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform
-const deviceID = `${platform}-e2e-${Date.now()}`
+const configuredDeviceID = process.env.PRIMEKIT_NATIVE_E2E_DEVICE_ID
+const deviceID = configuredDeviceID?.startsWith(`${platform}-e2e-`)
+  ? configuredDeviceID
+  : `${platform}-e2e-${Date.now()}`
 const uiMode = process.env.PRIMEKIT_NATIVE_E2E_UI === "1"
 const requireComputer = process.env.PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER === "1"
 const readyFile = process.env.PRIMEKIT_NATIVE_E2E_READY_FILE
+const crossDeviceSequences = (process.env.PRIMEKIT_NATIVE_E2E_CROSS_SEQUENCES ?? "")
+  .split(",")
+  .map(value => Number(value.trim()))
+  .filter(value => Number.isInteger(value) && value > 0)
+const crossDeviceWorker = crossDeviceSequences.length > 0
 mkdirSync(userData)
 for (const name of ["data", "config", "cache", "state"]) mkdirSync(join(xdgRoot, name), { recursive: true })
 
@@ -146,7 +154,7 @@ try {
   writeFileSync(tokenFile, `${JSON.stringify(tokens)}\n`, { mode: 0o600 })
   const auth = { authorization: `Bearer ${tokens.access_token}` }
 
-  if (uiMode) {
+  if (uiMode || crossDeviceWorker) {
     startApp()
     const runtime = await waitFor("packaged UI runtime registration", async () => {
       const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
@@ -162,6 +170,51 @@ try {
       const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
       return grants.find((item) => item.active && samePath(item.root_path_display, workspace))
     })
+    if (crossDeviceWorker) {
+      const markers = crossDeviceSequences.map(sequence => join(workspace, `E2E_NATIVE_CROSS_${sequence}.txt`))
+      const expectedResultCount = Math.max(...crossDeviceSequences)
+      const ready = {
+        status: "cross-device-ready",
+        device_id: deviceID,
+        device_name: runtime.device_name,
+        platform: process.platform,
+        runtime_id: runtime.id,
+        folder_grant_id: grant.id,
+        workspace,
+        sequences: crossDeviceSequences,
+        markers,
+      }
+      if (readyFile) writeFileSync(readyFile, `${JSON.stringify(ready)}\n`, { mode: 0o600 })
+      console.log(JSON.stringify(ready))
+
+      const canonical = await waitFor("cross-device browser turns", async () => {
+        if (!markers.every(path => existsSync(path) && readFileSync(path, "utf8") === markerContent)) return
+        const chats = await request("/chats/", { headers: auth })
+        for (const summary of chats.slice(0, 30)) {
+          const chat = await request(`/chats/${summary.id}`, { headers: auth })
+          const hasEveryPrompt = markers.every(path => chat.messages.some(message => (
+            message.role === "user" && message.content?.includes(path)
+          )))
+          if (!hasEveryPrompt) continue
+          const matches = chat.messages.filter(message => message.role === "assistant" && message.content === expected)
+          if (matches.length === expectedResultCount) return { chat, matches }
+          if (matches.length > expectedResultCount) throw new Error("Cross-device result was persisted more than once")
+        }
+      })
+      if (readyFile) {
+        writeFileSync(readyFile, `${JSON.stringify({ ...ready, status: "cross-device-completed", chat_id: canonical.chat.id })}\n`, { mode: 0o600 })
+      }
+      passed = true
+      console.log(JSON.stringify({
+        status: "passed",
+        mode: "cross-device-worker",
+        platform: process.platform,
+        chat_id: canonical.chat.id,
+        runtime_id: runtime.id,
+        sequences: crossDeviceSequences,
+        markers,
+      }))
+    } else {
     const ready = {
       status: "ui-ready",
       device_name: runtime.device_name,
@@ -199,6 +252,7 @@ try {
       runtime_id: runtime.id,
       marker,
     }))
+    }
   } else {
   const chat = await request("/chats/", {
     method: "POST",

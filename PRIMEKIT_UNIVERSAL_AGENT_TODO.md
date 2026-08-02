@@ -32,8 +32,10 @@
 
 ### Последние проверки
 
-- Backend `8f5b88c`: 33 unit tests — pass.
-- Backend `8f5b88c`: двухустройственный system E2E — pass (`runtime_id=1`, `second_runtime_id=2`).
+- Backend `083b75b`: 34 chat-run/desktop-agent unit tests — pass.
+- Backend `083b75b`: один cloud chat выполняет Mac → Windows → Mac system E2E; третий turn возвращается
+  первому runtime, получает канонический контекст Windows и не попадает в очередь второго устройства.
+- Backend `083b75b`: внутренний desktop command prompt скрыт от участников общего чата; owner regression — pass.
 - Desktop `a556be2`: DMG install → Computer Use → cloud turn → local write → restart → cloud sync — pass.
 - Последний установленный Mac E2E: file → restart → file → Terminal — pass; wake 24 ms,
   после restart 1160 ms, одна local session и три синхронизированных cloud result.
@@ -79,7 +81,11 @@
 - [x] Выполнить реальную Terminal-команду из установленного Windows-клиента (Windows PTY x64 проверен как PE runtime).
   - [x] Найти и закрыть гонку persistent session, из-за которой третий ход не доходил до provider.
   - [x] Повторить clean NSIS install → file → restart → Terminal на сборке с исправлением.
-- [ ] Провести ручной cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
+- [ ] Провести реальный cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
+  - [x] Протокольный PostgreSQL system E2E Mac → Windows → Mac в одном cloud chat.
+  - [x] Packaged device-worker для назначенных Mac/Windows turns и browser UI coordinator.
+  - [x] Packaged Mac worker → локальный write → canonical cloud result на общей PostgreSQL-среде.
+  - [ ] Одновременно запустить установленные Mac и Windows workers против одного доступного backend и пройти UI coordinator.
 - [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
 ## P0 — до публичного релиза
