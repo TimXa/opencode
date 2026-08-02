@@ -50,8 +50,11 @@
   6 provider calls, 3 user + 6 assistant messages — pass.
 - Ротация command-bound model token теперь сбрасывает только Provider-кеш выбранного workspace;
   третий ход больше не использует отозванный Bearer предыдущей команды. Unit regression и packaged Mac E2E — pass.
-- Последний установленный Windows Terminal gate ещё не подтверждён: runs `30734033150`–`30736253537`
-  зависали на третьем ходе из-за найденной потери queued prompt; требуется повтор после новой сборки.
+- Desktop `97ac9541` + backend `cb48e67`: Windows QA run `30738294738`, attempt 2 — clean NSIS install →
+  Computer Use → browser/cloud → local file → restart → Terminal → cloud sync → silent uninstall — pass;
+  6 provider calls, wake 52 ms, после restart 2869 ms.
+- Последний Windows artifact `primekit-windows-x64-unsigned-qa` (`8830698626`, 333 455 155 bytes)
+  загружен на 14 дней.
 
 ## P0 — до тестовой раздачи
 
@@ -73,9 +76,9 @@
   - [x] SSE wakeup;
   - [x] сохранение session после restart;
   - [x] ровно один cloud result на каждый turn.
-- [ ] Выполнить реальную Terminal-команду из установленного Windows-клиента (Windows PTY x64 уже проверен как PE runtime).
+- [x] Выполнить реальную Terminal-команду из установленного Windows-клиента (Windows PTY x64 проверен как PE runtime).
   - [x] Найти и закрыть гонку persistent session, из-за которой третий ход не доходил до provider.
-  - [ ] Повторить clean NSIS install → file → restart → Terminal на сборке с исправлением.
+  - [x] Повторить clean NSIS install → file → restart → Terminal на сборке с исправлением.
 - [ ] Провести ручной cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
 - [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
