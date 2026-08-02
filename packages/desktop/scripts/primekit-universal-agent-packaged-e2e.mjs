@@ -18,6 +18,8 @@ const workspaceInput = join(temporary, "workspace")
 const userData = join(temporary, "user-data")
 const xdgRoot = join(temporary, "xdg")
 const tokenFile = join(temporary, "tokens.json")
+const legacySessionFile = join(userData, "primekit.session.json")
+const settingsFile = join(userData, "opencode.settings")
 mkdirSync(workspaceInput)
 const workspace = realpathSync(workspaceInput)
 const marker = join(workspace, "E2E_NATIVE_MARKER.txt")
@@ -30,6 +32,7 @@ const deviceID = configuredDeviceID?.startsWith(`${platform}-e2e-`)
   : `${platform}-e2e-${Date.now()}`
 const uiMode = process.env.PRIMEKIT_NATIVE_E2E_UI === "1"
 const requireComputer = process.env.PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER === "1"
+const requireSecureSession = process.env.PRIMEKIT_NATIVE_E2E_REQUIRE_SECURE_SESSION === "1"
 const readyFile = process.env.PRIMEKIT_NATIVE_E2E_READY_FILE
 const crossDeviceSequences = (process.env.PRIMEKIT_NATIVE_E2E_CROSS_SEQUENCES ?? "")
   .split(",")
@@ -152,6 +155,16 @@ try {
     body: JSON.stringify({ email, code: requested.dev_code }),
   })
   writeFileSync(tokenFile, `${JSON.stringify(tokens)}\n`, { mode: 0o600 })
+  // Signed builds deliberately reject the QA token-file shortcut. Seed the same
+  // legacy session a real upgraded user can have; production code must migrate it
+  // into safeStorage and delete the plaintext file on first launch.
+  writeFileSync(legacySessionFile, `${JSON.stringify(tokens)}\n`, { mode: 0o600 })
+  // This is the persisted result of the one-time full-device consent dialog, not
+  // an approval bypass. OS-level Screen Recording/Accessibility gates still apply.
+  writeFileSync(settingsFile, `${JSON.stringify({
+    firstLaunchOnboardingComplete: true,
+    primekitAccessProfile: "full_device",
+  })}\n`, { mode: 0o600 })
   const auth = { authorization: `Bearer ${tokens.access_token}` }
 
   if (uiMode || crossDeviceWorker) {
@@ -162,6 +175,11 @@ try {
         item.device_id === deviceID && item.status === "online"
       ))
     })
+    if (requireSecureSession) {
+      await waitFor("legacy session migration into platform secure storage", async () => (
+        existsSync(legacySessionFile) ? undefined : true
+      ))
+    }
     if (!samePath(runtime.workspace_path, workspace)) {
       throw new Error(`Packaged UI runtime registered the wrong workspace: ${runtime.workspace_path}`)
     }

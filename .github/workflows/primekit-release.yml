@@ -12,6 +12,11 @@ on:
         required: true
         default: eacfefd3779ed48aa805a7e37f0f2fcc55e3588b
         type: string
+      validate_only:
+        description: Run immutable-input and PostgreSQL gates without signing or publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -29,6 +34,20 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: primekit
+          POSTGRES_PASSWORD: primekit
+          POSTGRES_DB: primekit_release_gate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U primekit -d primekit_release_gate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - name: Validate immutable inputs
         shell: bash
@@ -36,7 +55,11 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_BACKEND_REF: ${{ inputs.backend_ref }}
         run: |
-          [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          test "$GITHUB_REF" = 'refs/heads/primekit-brand' || {
+            echo 'production release must run from primekit-brand' >&2
+            exit 1
+          }
+          [[ "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo 'version must be semantic x.y.z' >&2
             exit 1
           }
@@ -44,6 +67,18 @@ jobs:
             echo 'backend_ref must be a full commit SHA' >&2
             exit 1
           }
+          existing_tag=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/v${INPUT_VERSION}")
+          test -z "$existing_tag" || { echo "tag v${INPUT_VERSION} already exists" >&2; exit 1; }
+          latest=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'refs/tags/v*' |
+            sed -n 's#.*refs/tags/v##p' | grep -E '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
+            sort -V | tail -n 1)
+          if test -n "$latest"; then
+            newest=$(printf '%s\n%s\n' "$latest" "$INPUT_VERSION" | sort -V | tail -n 1)
+            test "$newest" = "$INPUT_VERSION" && test "$latest" != "$INPUT_VERSION" || {
+              echo "version must be newer than v${latest}" >&2
+              exit 1
+            }
+          fi
 
       - name: Require backend checkout credential
         env:
@@ -63,8 +98,66 @@ jobs:
           token: ${{ secrets.PRIMEKIT_CI_REPO_TOKEN }}
           persist-credentials: false
 
+      - name: Verify PostgreSQL Universal Agent invariants
+        shell: bash
+        env:
+          PGPASSWORD: primekit
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: primekit
+          PGDATABASE: primekit_release_gate
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE users (id VARCHAR PRIMARY KEY);
+          CREATE TABLE chat_sessions (id SERIAL PRIMARY KEY);
+          CREATE TABLE chat_messages (
+            id SERIAL PRIMARY KEY,
+            session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE
+          );
+          CREATE TABLE desktop_agent_runtimes (id SERIAL PRIMARY KEY);
+          CREATE TABLE desktop_agent_folder_grants (id SERIAL PRIMARY KEY);
+          CREATE TABLE agent_tasks (
+            id SERIAL PRIMARY KEY,
+            session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+            status VARCHAR(40) NOT NULL
+          );
+          CREATE TABLE desktop_agent_commands (
+            id SERIAL PRIMARY KEY,
+            agent_task_id INTEGER REFERENCES agent_tasks(id) ON DELETE SET NULL
+          );
+          SQL
+          psql -v ON_ERROR_STOP=1 -f backend-release-input/MinecraftAI_Backend/migrations/008_agent_task_desktop_idempotency.sql
+          psql -v ON_ERROR_STOP=1 -f backend-release-input/MinecraftAI_Backend/migrations/008_agent_task_desktop_idempotency.sql
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO chat_sessions DEFAULT VALUES;
+          INSERT INTO chat_messages(session_id, client_message_id) VALUES (1, 'release-gate-message');
+          INSERT INTO agent_tasks(session_id, status) VALUES (1, 'running');
+          INSERT INTO desktop_agent_commands(agent_task_id) VALUES (1);
+
+          DO $gate$
+          BEGIN
+            BEGIN
+              INSERT INTO chat_messages(session_id, client_message_id) VALUES (1, 'release-gate-message');
+              RAISE EXCEPTION 'duplicate client_message_id was accepted';
+            EXCEPTION WHEN unique_violation THEN NULL;
+            END;
+            BEGIN
+              INSERT INTO agent_tasks(session_id, status) VALUES (1, 'running');
+              RAISE EXCEPTION 'second running task was accepted';
+            EXCEPTION WHEN unique_violation THEN NULL;
+            END;
+            BEGIN
+              INSERT INTO desktop_agent_commands(agent_task_id) VALUES (1);
+              RAISE EXCEPTION 'second desktop command for one task was accepted';
+            EXCEPTION WHEN unique_violation THEN NULL;
+            END;
+          END
+          $gate$;
+          SQL
+
   macos:
     needs: validate
+    if: ${{ !inputs.validate_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -186,6 +279,7 @@ jobs:
           JWT_SECRET: portable-e2e-secret
           PRIMEKIT_E2E_BASE_URL: http://127.0.0.1:18000
           PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER: "1"
+          PRIMEKIT_NATIVE_E2E_REQUIRE_SECURE_SESSION: "1"
         run: |
           BACKEND="$GITHUB_WORKSPACE/primekit-backend-source/MinecraftAI_Backend"
           export DATABASE_URL="sqlite:///$RUNNER_TEMP/primekit-native-e2e.db"
@@ -221,6 +315,7 @@ jobs:
 
   windows:
     needs: validate
+    if: ${{ !inputs.validate_only }}
     runs-on: windows-2025
     timeout-minutes: 75
     env:
@@ -326,6 +421,7 @@ jobs:
           JWT_SECRET: portable-e2e-secret
           PRIMEKIT_E2E_BASE_URL: http://127.0.0.1:18000
           PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER: "1"
+          PRIMEKIT_NATIVE_E2E_REQUIRE_SECURE_SESSION: "1"
         run: |
           $backend = (Resolve-Path 'primekit-backend-source/MinecraftAI_Backend').Path
           $database = (Join-Path $env:RUNNER_TEMP 'primekit-native-e2e.db').Replace('\', '/')
@@ -370,6 +466,7 @@ jobs:
 
   publish:
     needs: [validate, macos, windows]
+    if: ${{ !inputs.validate_only && !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
@@ -399,6 +496,10 @@ jobs:
           if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             test "$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true || {
               echo "Published release already exists: $TAG" >&2
+              exit 1
+            }
+            test "$(gh release view "$TAG" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA" || {
+              echo "Draft release $TAG belongs to a different commit" >&2
               exit 1
             }
           else

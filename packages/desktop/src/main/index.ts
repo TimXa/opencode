@@ -152,12 +152,18 @@ const main = Effect.gen(function* () {
   app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Кит Dev")
   app.setAppUserModelId(appId)
   const nativeE2EUserData = process.env.PRIMEKIT_NATIVE_E2E_USER_DATA
+  const isolatedPackagedUserData = (
+    app.isPackaged &&
+      process.env.PRIMEKIT_NATIVE_E2E === "1" &&
+      nativeE2EUserData &&
+      isAbsolute(nativeE2EUserData)
+  ) ? nativeE2EUserData : undefined
   app.setPath(
     "userData",
     onboardingTestRoot
       ? join(onboardingTestRoot, "desktop")
-      : NATIVE_E2E && nativeE2EUserData && isAbsolute(nativeE2EUserData)
-        ? nativeE2EUserData
+      : isolatedPackagedUserData
+        ? isolatedPackagedUserData
         : join(app.getPath("appData"), appId),
   )
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))

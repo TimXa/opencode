@@ -100,6 +100,7 @@
 ## P0 — до публичного релиза
 
 - [ ] Запустить `.github/workflows/primekit-release.yml` с immutable backend SHA.
+- [x] Release validate job применяет migration `008` к PostgreSQL 16 и доказывает три duplicate-prevention invariant.
 - [ ] macOS ARM64 и x64: Developer ID Application, hardened runtime, notarization, stapling.
 - [ ] Windows x64: Azure Trusted Signing и точный `PRIMEKIT_WINDOWS_PUBLISHER_NAME`.
 - [ ] Проверить чистую установку production DMG и NSIS, не только unpacked directory.
