@@ -127,6 +127,7 @@
 ## Внешние prerequisites
 
 - [x] GitHub write authentication для `TimXa/opencode` и `TimXa/Omar1` (проверено push; временный PAT не хранится в проекте).
+- [x] `primekit-brand` назначена default branch; signed release workflow зарегистрирован GitHub Actions как active.
 - [x] `PRIMEKIT_CI_REPO_TOKEN` для checkout приватного backend в Actions настроен в `TimXa/opencode`.
 - [ ] Заменить временный токен, опубликованный в чате, на новый dedicated read-only token для `TimXa/Omar1`,
       затем отозвать временный токен.
