@@ -172,7 +172,6 @@ try {
     })
     if (crossDeviceWorker) {
       const markers = crossDeviceSequences.map(sequence => join(workspace, `E2E_NATIVE_CROSS_${sequence}.txt`))
-      const expectedResultCount = Math.max(...crossDeviceSequences)
       const ready = {
         status: "cross-device-ready",
         device_id: deviceID,
@@ -192,13 +191,20 @@ try {
         const chats = await request("/chats/", { headers: auth })
         for (const summary of chats.slice(0, 30)) {
           const chat = await request(`/chats/${summary.id}`, { headers: auth })
-          const hasEveryPrompt = markers.every(path => chat.messages.some(message => (
-            message.role === "user" && message.content?.includes(path)
-          )))
-          if (!hasEveryPrompt) continue
-          const matches = chat.messages.filter(message => message.role === "assistant" && message.content === expected)
-          if (matches.length === expectedResultCount) return { chat, matches }
-          if (matches.length > expectedResultCount) throw new Error("Cross-device result was persisted more than once")
+          const completedEveryPrompt = markers.every(path => {
+            const promptIndex = chat.messages.findIndex(message => (
+              message.role === "user" && message.content?.includes(path)
+            ))
+            if (promptIndex < 0) return false
+            const nextUserOffset = chat.messages.slice(promptIndex + 1).findIndex(message => message.role === "user")
+            const turnEnd = nextUserOffset < 0 ? chat.messages.length : promptIndex + 1 + nextUserOffset
+            const matches = chat.messages.slice(promptIndex + 1, turnEnd).filter(message => (
+              message.role === "assistant" && message.content === expected
+            ))
+            if (matches.length > 1) throw new Error(`Cross-device result for ${path} was persisted more than once`)
+            return matches.length === 1
+          })
+          if (completedEveryPrompt) return { chat }
         }
       })
       if (readyFile) {
