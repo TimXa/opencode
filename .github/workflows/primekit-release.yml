@@ -1,0 +1,391 @@
+name: PrimeKit signed desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without v prefix
+        required: true
+        type: string
+      backend_ref:
+        description: Immutable TimXa/Omar1 commit used by packaged E2E
+        required: true
+        default: 8f5b88cf55e0c291845b62dab87c55c9bfac4627
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: primekit-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  OPENCODE_CHANNEL: prod
+  OPENCODE_VERSION: ${{ inputs.version }}
+  PRIMEKIT_RELEASE_REPOSITORY: ${{ github.repository }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate immutable inputs
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BACKEND_REF: ${{ inputs.backend_ref }}
+        run: |
+          [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'version must be semantic x.y.z' >&2
+            exit 1
+          }
+          [[ "$INPUT_BACKEND_REF" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'backend_ref must be a full commit SHA' >&2
+            exit 1
+          }
+
+  macos:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            target: aarch64-apple-darwin
+            app_dir: mac-arm64
+          - runner: macos-15-intel
+            arch: x64
+            target: x86_64-apple-darwin
+            app_dir: mac
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+
+      - name: Require release credentials
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          PRIMEKIT_CI_REPO_TOKEN: ${{ secrets.PRIMEKIT_CI_REPO_TOKEN }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_PATH APPLE_API_KEY APPLE_API_ISSUER PRIMEKIT_CI_REPO_TOKEN; do
+            test -n "${!name}" || { echo "Missing secret: $name" >&2; exit 1; }
+          done
+
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+        with:
+          repository: TimXa/Omar1
+          ref: ${{ inputs.backend_ref }}
+          path: primekit-backend-source
+          token: ${{ secrets.PRIMEKIT_CI_REPO_TOKEN }}
+
+      - uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93
+        with:
+          keychain: build
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Configure notarization key
+        env:
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+        run: printf '%s' "$APPLE_API_KEY_PATH" > "$RUNNER_TEMP/apple-api-key.p8"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: primekit-backend-source/MinecraftAI_Backend/tests/e2e/requirements-portable.txt
+
+      - name: Install portable E2E backend
+        run: python -m pip install -r primekit-backend-source/MinecraftAI_Backend/tests/e2e/requirements-portable.txt
+
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+
+      - name: Typecheck and build
+        working-directory: packages/desktop
+        env:
+          RUST_TARGET: ${{ matrix.target }}
+          PRIMEKIT_BUILD_PLATFORM: darwin
+          PRIMEKIT_BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          bun run typecheck
+          bun ./scripts/prepare.ts
+          bun run build
+
+      - name: Package, sign and notarize
+        working-directory: packages/desktop
+        timeout-minutes: 45
+        env:
+          RUST_TARGET: ${{ matrix.target }}
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/apple-api-key.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: bunx electron-builder --mac --${{ matrix.arch }} --publish never --config electron-builder.config.ts
+
+      - name: Install DMG and verify notarized identity
+        id: install
+        working-directory: packages/desktop
+        run: |
+          DMG=$(find dist -maxdepth 1 -name 'kit-desktop-mac-${{ matrix.arch }}.dmg' -print -quit)
+          test -n "$DMG" || { echo 'Signed DMG missing' >&2; exit 1; }
+          MOUNT="$RUNNER_TEMP/kit-dmg"
+          DEST="$RUNNER_TEMP/Applications/Кит.app"
+          mkdir -p "$MOUNT" "$(dirname "$DEST")"
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT"
+          trap 'hdiutil detach "$MOUNT" || true' EXIT
+          SOURCE=$(find "$MOUNT" -maxdepth 1 -name '*.app' -type d -print -quit)
+          test -n "$SOURCE" || { echo 'Application missing from DMG' >&2; exit 1; }
+          ditto "$SOURCE" "$DEST"
+          hdiutil detach "$MOUNT"
+          trap - EXIT
+          codesign --verify --deep --strict --verbose=2 "$DEST"
+          spctl --assess --type exec --verbose=2 "$DEST"
+          xcrun stapler validate "$DEST"
+          xcrun stapler validate "$DMG"
+          echo "executable=$DEST/Contents/MacOS/Кит" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke installed Computer Use runtime
+        working-directory: packages/desktop
+        run: bun run smoke:computer:packaged -- '${{ steps.install.outputs.executable }}'
+
+      - name: E2E browser account to installed macOS agent
+        working-directory: packages/desktop
+        env:
+          PRIMEKIT_DEV_AUTH: "1"
+          PRIMEKIT_PASSWORDLESS_EMAILS: universal-e2e@primekit.test
+          PRIMEKIT_LLM_API_KEY: e2e-only
+          PRIMEKIT_LLM_BASE_URL: http://127.0.0.1:8081/v1
+          PRIMEKIT_LLM_MODEL: e2e/tool-model
+          JWT_SECRET: portable-e2e-secret
+          PRIMEKIT_E2E_BASE_URL: http://127.0.0.1:18000
+          PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER: "1"
+        run: |
+          BACKEND="$GITHUB_WORKSPACE/primekit-backend-source/MinecraftAI_Backend"
+          export DATABASE_URL="sqlite:///$RUNNER_TEMP/primekit-native-e2e.db"
+          export PYTHONPATH="$BACKEND"
+          python "$BACKEND/tests/e2e/universal_agent_e2e.py" provider > "$RUNNER_TEMP/provider.log" 2>&1 &
+          PROVIDER_PID=$!
+          python "$BACKEND/scripts/native_smoke_server.py" --port 18000 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" "$PROVIDER_PID" 2>/dev/null || true; cat "$RUNNER_TEMP/backend.log" "$RUNNER_TEMP/provider.log"' EXIT
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:18000/health >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18000/health >/dev/null
+          bun run smoke:universal-agent:packaged -- '${{ steps.install.outputs.executable }}'
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: primekit-release-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            packages/desktop/dist/kit-desktop-mac-${{ matrix.arch }}.dmg
+            packages/desktop/dist/kit-desktop-mac-${{ matrix.arch }}.zip
+            packages/desktop/dist/kit-desktop-mac-${{ matrix.arch }}.zip.blockmap
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: latest-yml-${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 7
+          path: packages/desktop/dist/latest-mac.yml
+
+  windows:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 75
+    env:
+      RUST_TARGET: x86_64-pc-windows-msvc
+      PRIMEKIT_BUILD_PLATFORM: win32
+      PRIMEKIT_BUILD_ARCH: x64
+      PRIMEKIT_WINDOWS_PUBLISHER_NAME: ${{ secrets.PRIMEKIT_WINDOWS_PUBLISHER_NAME }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+
+      - name: Require release credentials
+        shell: pwsh
+        env:
+          PRIMEKIT_CI_REPO_TOKEN: ${{ secrets.PRIMEKIT_CI_REPO_TOKEN }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          $required = @(
+            'PRIMEKIT_CI_REPO_TOKEN', 'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID',
+            'PRIMEKIT_WINDOWS_PUBLISHER_NAME', 'AZURE_TRUSTED_SIGNING_ENDPOINT',
+            'AZURE_TRUSTED_SIGNING_ACCOUNT_NAME', 'AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE'
+          )
+          foreach ($name in $required) {
+            if (-not (Get-Item "Env:$name" -ErrorAction SilentlyContinue).Value) { throw "Missing secret: $name" }
+          }
+
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+        with:
+          repository: TimXa/Omar1
+          ref: ${{ inputs.backend_ref }}
+          path: primekit-backend-source
+          token: ${{ secrets.PRIMEKIT_CI_REPO_TOKEN }}
+
+      - uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: primekit-backend-source/MinecraftAI_Backend/tests/e2e/requirements-portable.txt
+
+      - name: Install portable E2E backend
+        run: python -m pip install -r primekit-backend-source/MinecraftAI_Backend/tests/e2e/requirements-portable.txt
+
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+
+      - name: Typecheck and build
+        working-directory: packages/desktop
+        run: |
+          bun run typecheck
+          bun ./scripts/prepare.ts
+          bun run build
+
+      - name: Package and sign
+        working-directory: packages/desktop
+        timeout-minutes: 45
+        run: bunx electron-builder --win --x64 --publish never --config electron-builder.config.ts
+
+      - name: Verify signatures and install NSIS package
+        id: install
+        shell: pwsh
+        run: |
+          $installer = (Resolve-Path 'packages/desktop/dist/kit-desktop-win-x64.exe').Path
+          $unpacked = (Resolve-Path 'packages/desktop/dist/win-unpacked/Кит.exe').Path
+          foreach ($file in @($installer, $unpacked)) {
+            $signature = Get-AuthenticodeSignature $file
+            if ($signature.Status -ne 'Valid') { throw "Invalid signature for ${file}: $($signature.Status)" }
+            if ($signature.SignerCertificate.Subject -ne $env:PRIMEKIT_WINDOWS_PUBLISHER_NAME) {
+              throw "Unexpected signer for ${file}: $($signature.SignerCertificate.Subject)"
+            }
+          }
+          $process = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "NSIS install failed: $($process.ExitCode)" }
+          $app = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Filter 'Кит.exe' -File -Recurse |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if (-not $app) { throw 'Installed Кит.exe not found' }
+          $signature = Get-AuthenticodeSignature $app.FullName
+          if ($signature.Status -ne 'Valid') { throw "Installed app signature is $($signature.Status)" }
+          "executable=$($app.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Smoke installed Computer Use runtime
+        working-directory: packages/desktop
+        run: bun run smoke:computer:packaged -- '${{ steps.install.outputs.executable }}'
+
+      - name: E2E browser account to installed Windows agent
+        shell: pwsh
+        env:
+          PRIMEKIT_DEV_AUTH: "1"
+          PRIMEKIT_PASSWORDLESS_EMAILS: universal-e2e@primekit.test
+          PRIMEKIT_LLM_API_KEY: e2e-only
+          PRIMEKIT_LLM_BASE_URL: http://127.0.0.1:8081/v1
+          PRIMEKIT_LLM_MODEL: e2e/tool-model
+          JWT_SECRET: portable-e2e-secret
+          PRIMEKIT_E2E_BASE_URL: http://127.0.0.1:18000
+          PRIMEKIT_NATIVE_E2E_REQUIRE_COMPUTER: "1"
+        run: |
+          $backend = (Resolve-Path 'primekit-backend-source/MinecraftAI_Backend').Path
+          $database = (Join-Path $env:RUNNER_TEMP 'primekit-native-e2e.db').Replace('\', '/')
+          $env:DATABASE_URL = "sqlite:///$database"
+          $env:PYTHONPATH = $backend
+          $providerOut = Join-Path $env:RUNNER_TEMP 'provider.log'
+          $backendOut = Join-Path $env:RUNNER_TEMP 'backend.log'
+          $provider = Start-Process python -ArgumentList @((Join-Path $backend 'tests/e2e/universal_agent_e2e.py'), 'provider') -PassThru -RedirectStandardOutput $providerOut -RedirectStandardError "$providerOut.err"
+          $server = Start-Process python -ArgumentList @((Join-Path $backend 'scripts/native_smoke_server.py'), '--port', '18000') -PassThru -RedirectStandardOutput $backendOut -RedirectStandardError "$backendOut.err"
+          try {
+            $ready = $false
+            1..60 | ForEach-Object {
+              if (-not $ready) {
+                try { $ready = (Invoke-RestMethod -Uri 'http://127.0.0.1:18000/health' -TimeoutSec 2).status -eq 'ok' }
+                catch { Start-Sleep -Seconds 1 }
+              }
+            }
+            if (-not $ready) { throw 'Portable PrimeKit backend did not become ready' }
+            bun run smoke:universal-agent:packaged -- '${{ steps.install.outputs.executable }}'
+          } finally {
+            foreach ($process in @($server, $provider)) {
+              if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            }
+            Get-Content $backendOut, "$backendOut.err", $providerOut, "$providerOut.err" -ErrorAction SilentlyContinue
+          }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: primekit-release-windows-x64
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            packages/desktop/dist/kit-desktop-win-x64.exe
+            packages/desktop/dist/kit-desktop-win-x64.exe.blockmap
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: latest-yml-x86_64-pc-windows-msvc
+          if-no-files-found: error
+          retention-days: 7
+          path: packages/desktop/dist/latest.yml
+
+  publish:
+    needs: [validate, macos, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: primekit-release-*
+          path: ${{ runner.temp }}/release
+          merge-multiple: true
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: latest-yml-*
+          path: ${{ runner.temp }}/latest-yml
+
+      - name: Publish only the fully gated release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LATEST_YML_DIR: ${{ runner.temp }}/latest-yml
+        run: |
+          TAG="v${OPENCODE_VERSION}"
+          if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "Release already exists: $TAG" >&2
+            exit 1
+          fi
+          gh release create "$TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Кит ${OPENCODE_VERSION}" --generate-notes --draft
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/release/*)
+          (( ${#files[@]} > 0 )) || { echo 'No release files' >&2; exit 1; }
+          gh release upload "$TAG" "${files[@]}" --repo "$GH_REPO"
+          bun packages/desktop/scripts/finalize-latest-yml.ts
+          gh release edit "$TAG" --repo "$GH_REPO" --draft=false --latest

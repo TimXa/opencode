@@ -42,6 +42,22 @@ test("requires signed Windows updates and records the trusted publisher", async 
   expect(config.win?.signtoolOptions?.publisherName).toBe("CN=PrimeKit Test, O=PrimeKit")
 })
 
+test("never infers an upstream update feed", async () => {
+  const previous = process.env.PRIMEKIT_RELEASE_REPOSITORY
+  delete process.env.PRIMEKIT_RELEASE_REPOSITORY
+  const disabled = (await import("./electron-builder.config.ts?feed=disabled")).default as Configuration
+  process.env.PRIMEKIT_RELEASE_REPOSITORY = "TimXa/opencode"
+  const configured = (await import("./electron-builder.config.ts?feed=primekit")).default as Configuration
+
+  if (previous === undefined) delete process.env.PRIMEKIT_RELEASE_REPOSITORY
+  else process.env.PRIMEKIT_RELEASE_REPOSITORY = previous
+
+  expect(disabled.publish).toBeNull()
+  expect(configured.publish).toEqual([
+    { provider: "github", owner: "TimXa", repo: "opencode", channel: "latest" },
+  ])
+})
+
 test("keeps a hidden prod launcher for old Linux pins", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "prod"

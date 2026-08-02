@@ -52,6 +52,14 @@ const APP_IDS = {
   prod: "ru.primekit.kit.desktop",
 } as const
 
+function getPublish(): Configuration["publish"] {
+  const value = process.env.PRIMEKIT_RELEASE_REPOSITORY?.trim()
+  if (!value) return null
+  const match = /^([^/]+)\/([^/]+)$/.exec(value)
+  if (!match) throw new Error("PRIMEKIT_RELEASE_REPOSITORY must be owner/repo")
+  return [{ provider: "github", owner: match[1], repo: match[2], channel: "latest" }]
+}
+
 const getBase = (appId: string): Configuration => ({
   artifactName: "kit-desktop-${os}-${arch}.${ext}",
   directories: {
@@ -66,6 +74,8 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
+  // Never infer the updater feed from the upstream OpenCode package metadata.
+  publish: getPublish(),
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
   asarUnpack: ["**/node_modules/@trycua/**/*", "**/node_modules/@ubjs/**/*"],
   extraResources: [
