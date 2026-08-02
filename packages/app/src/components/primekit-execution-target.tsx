@@ -11,6 +11,11 @@ export type PrimeKitExecutionTargetValue =
 const runtimeReady = (runtime: { status: string; capabilities: string[] } | undefined) =>
   runtime?.status === "online" && runtime.capabilities.includes("agent_run")
 
+export const visibleExecutionRuntimes = <T extends { id: number; status: string; capabilities: string[] }>(
+  runtimes: T[],
+  selectedRuntimeID?: number,
+) => runtimes.filter((runtime) => runtimeReady(runtime) || runtime.id === selectedRuntimeID)
+
 const grantReady = (
   grant: { active: boolean; capabilities: string[]; runtime_id: number } | undefined,
   runtimeID?: number,
@@ -60,6 +65,9 @@ export function PrimeKitExecutionTarget(props: Props) {
     const value = selected()
     return value?.kind === "desktop" ? value : undefined
   })
+  const visibleRuntimes = createMemo(() =>
+    visibleExecutionRuntimes(options()?.runtimes ?? [], selectedDesktop()?.runtime_id ?? undefined),
+  )
   const label = createMemo(() => {
     const value = selected()
     if (!value || value.kind === "cloud") return "Облако"
@@ -140,7 +148,7 @@ export function PrimeKitExecutionTarget(props: Props) {
             </MenuV2.Group>
             <MenuV2.Separator />
             <MenuV2.Group>
-              <For each={options()?.runtimes}>
+              <For each={visibleRuntimes()}>
                 {(runtime) => {
                   const grants = () =>
                     options()?.grants.filter((grant) => grant.active && grant.runtime_id === runtime.id) ?? []
@@ -188,9 +196,9 @@ export function PrimeKitExecutionTarget(props: Props) {
                   )
                 }}
               </For>
-              <Show when={!options.loading && !options()?.runtimes.length}>
+              <Show when={!options.loading && !visibleRuntimes().length}>
                 <div class="px-3 py-2 text-[12px] text-v2-text-text-faint">
-                  Откройте приложение Кит на Mac или Windows.
+                  Нет доступных компьютеров. Откройте Кит на Mac или Windows.
                 </div>
               </Show>
             </MenuV2.Group>
