@@ -50,6 +50,12 @@ export default function NewLayout(props: ParentProps) {
     const user = account()?.user
     return user?.display_name?.trim() || user?.email?.split("@")[0] || "Профиль"
   })
+  const accountAvatar = createMemo(() => {
+    const value = account()?.user?.photo_url?.trim()
+    if (!value) return
+    if (/^https?:\/\//.test(value)) return value
+    return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
+  })
   const projectColor = (project: ReturnType<typeof projects>[number]) =>
     ((project as typeof project & { icon?: { color?: string } }).icon?.color || "#84796a")
   const projectIcon = (project: ReturnType<typeof projects>[number]) =>
@@ -251,7 +257,7 @@ export default function NewLayout(props: ParentProps) {
               onClick={showSettings}
             >
               <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
-                <Show when={account()?.user?.photo_url} fallback={accountName().slice(0, 2).toUpperCase()}>
+                <Show when={accountAvatar()} fallback={accountName().slice(0, 2).toUpperCase()}>
                   {(url) => <img src={url()} alt="" class="size-full object-cover" />}
                 </Show>
               </span>
