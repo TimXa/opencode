@@ -195,10 +195,10 @@ function basic(server: LocalServer) {
   return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`
 }
 
-function localRequest<T>(server: LocalServer, path: string, init: RequestInit = {}): Promise<T> {
+function localRequest<T>(server: LocalServer, path: string, init: RequestInit = {}, timeout = 15_000): Promise<T> {
   return fetch(`${server.url}${path}`, {
     ...init,
-    signal: boundedSignal(init.signal),
+    signal: boundedSignal(init.signal, timeout),
     headers: { authorization: basic(server), "content-type": "application/json", ...init.headers },
   })
     .then(async (response) => {
@@ -618,8 +618,10 @@ async function execute(
       { signal: executionSignal },
     )
     const alreadySubmitted = existingMessages.some((message) => message.info?.id === localMessageID)
+    let promptFailure: unknown
+    let promptTask: Promise<void> | undefined
     if (!alreadySubmitted) {
-      await localRequest(server, `/session/${localSessionID}/prompt_async?directory=${encodeURIComponent(root)}`, {
+      promptTask = localRequest(server, `/session/${localSessionID}/prompt?directory=${encodeURIComponent(root)}`, {
         method: "POST",
         signal: executionSignal,
         body: JSON.stringify({
@@ -629,11 +631,17 @@ async function execute(
           system: canonicalContext(command),
           parts: [{ type: "text", text: effectivePrompt }],
         }),
-      })
+      }, 15 * 60_000).then(
+        () => undefined,
+        (error) => {
+          promptFailure = error
+        },
+      )
     }
 
     let assistantText = ""
     for (let attempt = 0; attempt < 900; attempt++) {
+      if (promptFailure) throw promptFailure
       if (attempt % 2 === 0) {
         const remote = await device.request<{ status: string }>(`/desktop-agent/device/commands/${command.id}`, {
           signal: executionSignal,
@@ -662,6 +670,8 @@ async function execute(
       if (!status && assistantText) break
       await abortableDelay(1_000, executionSignal)
     }
+    await promptTask
+    if (promptFailure) throw promptFailure
     if (!assistantText) throw new Error("Local agent completed without a matching assistant response")
     await stopLease()
     await event("result", { message: assistantText, session_id: localSessionID })
