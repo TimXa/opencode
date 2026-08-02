@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { visibleExecutionRuntimes } from "./primekit-execution-target"
+import { executionDeviceLabel, visibleExecutionRuntimes } from "./primekit-execution-target"
 
 const runtime = (id: number, status: "online" | "offline", capabilities = ["agent_run"]) => ({
   id,
@@ -8,6 +8,10 @@ const runtime = (id: number, status: "online" | "offline", capabilities = ["agen
 })
 
 describe("visibleExecutionRuntimes", () => {
+  test("removes the local network suffix from device labels", () => {
+    expect(executionDeviceLabel("MacBook-Air-PrimeKit.local")).toBe("MacBook-Air-PrimeKit")
+  })
+
   test("shows ready devices and hides stale offline registrations", () => {
     expect(
       visibleExecutionRuntimes([

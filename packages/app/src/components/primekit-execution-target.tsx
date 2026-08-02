@@ -11,6 +11,8 @@ export type PrimeKitExecutionTargetValue =
 const runtimeReady = (runtime: { status: string; capabilities: string[] } | undefined) =>
   runtime?.status === "online" && runtime.capabilities.includes("agent_run")
 
+export const executionDeviceLabel = (name: string) => name.replace(/\.local$/i, "")
+
 export const visibleExecutionRuntimes = <T extends { id: number; status: string; capabilities: string[] }>(
   runtimes: T[],
   selectedRuntimeID?: number,
@@ -71,13 +73,8 @@ export function PrimeKitExecutionTarget(props: Props) {
   const label = createMemo(() => {
     const value = selected()
     if (!value || value.kind === "cloud") return "Облако"
-    return `${value.runtime_name ?? "Устройство"} · ${value.folder_name ?? "Папка"}`
+    return executionDeviceLabel(value.runtime_name ?? "Устройство")
   })
-  const runtimeStatus = (runtime: { status: string; capabilities: string[]; permission_summary?: string | null }) => {
-    if (runtime.status !== "online") return "Не в сети"
-    if (!runtime.capabilities.includes("agent_run")) return runtime.permission_summary || "Локальный агент выключен"
-    return runtime.permission_summary || "Файлы, Terminal и Git доступны"
-  }
   const selectCloud = async () => {
     if ("onChange" in props) {
       props.onChange({ kind: "cloud" })
@@ -158,9 +155,9 @@ export function PrimeKitExecutionTarget(props: Props) {
                         <MenuV2.Item disabled>
                           <IconV2 name="monitor" />
                           <span class="min-w-0 flex-1">
-                            <span class="block truncate">{runtime.device_name}</span>
+                            <span class="block truncate">{executionDeviceLabel(runtime.device_name)}</span>
                             <span class="block truncate text-[11px] text-v2-text-text-faint">
-                              {runtimeStatus(runtime)} · папка не подключена
+                              Подключите папку
                             </span>
                           </span>
                         </MenuV2.Item>
@@ -175,9 +172,9 @@ export function PrimeKitExecutionTarget(props: Props) {
                             >
                               <IconV2 name="monitor" />
                               <span class="min-w-0 flex-1">
-                                <span class="block truncate">{runtime.device_name}</span>
+                                <span class="block truncate">{executionDeviceLabel(runtime.device_name)}</span>
                                 <span class="block truncate text-[11px] text-v2-text-text-faint">
-                                  {grant.display_name} · {runtimeStatus(runtime)}
+                                  {grant.display_name}{available() ? "" : " · Не в сети"}
                                 </span>
                               </span>
                               <Show
