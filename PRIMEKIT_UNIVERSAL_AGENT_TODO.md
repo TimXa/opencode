@@ -37,12 +37,23 @@
 - Desktop `a556be2`: DMG install → Computer Use → cloud turn → local write → restart → cloud sync — pass.
 - Последний Mac DMG E2E: wake 26 ms, после restart 1209 ms, session сохранена.
 - Desktop config: 9 tests, typecheck и actionlint 1.7.12 — pass.
+- Desktop `6e09173`: Windows QA run `30732881834` на настоящем `windows-2025` — pass.
+- Windows QA: x64 NSIS собран; PE/native runtime, packaged Computer Use и browser → cloud → local agent → cloud E2E — pass.
+- Windows QA artifact `primekit-windows-x64-unsigned-qa` (`8828656646`, 333 453 158 bytes) загружен на 14 дней.
 
 ## P0 — до тестовой раздачи
 
-- [ ] Push desktop `primekit-brand` и backend `main` в GitHub.
-- [ ] Запустить `.github/workflows/primekit-windows-qa.yml` на настоящем `windows-2025`.
-- [ ] Подтвердить на установленном Windows NSIS-клиенте:
+- [x] Push desktop `primekit-brand` и backend `main` в GitHub.
+- [x] Запустить `.github/workflows/primekit-windows-qa.yml` на настоящем `windows-2025`.
+- [x] Подтвердить на packaged Windows x64 QA-клиенте:
+  - [x] регистрацию runtime;
+  - [x] scoped folder grant;
+  - [x] локальный file tool;
+  - [x] Computer Use screenshot/input;
+  - [x] SSE wakeup;
+  - [x] сохранение session после restart;
+  - [x] ровно один cloud result на каждый turn.
+- [ ] Подтвердить после чистой установки Windows NSIS-клиента:
   - [ ] регистрацию runtime;
   - [ ] scoped folder grant;
   - [ ] локальные file и Terminal tools;
@@ -51,7 +62,7 @@
   - [ ] сохранение session после restart;
   - [ ] ровно один cloud result.
 - [ ] Провести ручной cross-device сценарий одним аккаунтом: browser → Mac → Windows → Mac.
-- [ ] Исправить все platform-specific ошибки первого Windows run и повторить до зелёного результата.
+- [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
 ## P0 — до публичного релиза
 
