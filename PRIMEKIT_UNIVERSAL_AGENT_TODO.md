@@ -127,9 +127,11 @@
 ## Внешние prerequisites
 
 - [x] GitHub write authentication для `TimXa/opencode` и `TimXa/Omar1` (проверено push; временный PAT не хранится в проекте).
-- [ ] `PRIMEKIT_CI_REPO_TOKEN` для checkout приватного backend в Actions.
-- [ ] Apple: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_PATH`,
-      `APPLE_API_KEY`, `APPLE_API_ISSUER`.
+- [x] `PRIMEKIT_CI_REPO_TOKEN` для checkout приватного backend в Actions настроен в `TimXa/opencode`.
+- [ ] Заменить временный токен, опубликованный в чате, на новый dedicated read-only token для `TimXa/Omar1`,
+      затем отозвать временный токен.
+- [ ] Apple: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_API_PRIVATE_KEY`,
+      `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`.
 - [ ] Azure: OIDC credentials, Trusted Signing endpoint/account/profile и publisher DN.
 
 ## Definition of done
