@@ -1,6 +1,9 @@
-export function modelTokenRequest(runtimeID: number) {
+export function modelTokenRequest(commandID: number, claimToken: string) {
   return {
-    path: `/desktop-agent/runtimes/${runtimeID}/model-token`,
-    init: { method: "POST" } satisfies RequestInit,
+    path: `/desktop-agent/commands/${commandID}/model-token`,
+    init: {
+      method: "POST",
+      body: JSON.stringify({ claim_token: claimToken }),
+    } satisfies RequestInit,
   }
 }

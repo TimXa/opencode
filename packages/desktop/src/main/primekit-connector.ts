@@ -488,7 +488,7 @@ async function execute(
       method: "POST",
       body: JSON.stringify({ claim_token: command.claim_token, event_index: eventIndex++, type, payload }),
     })
-  const credentialRequest = modelTokenRequest(command.runtime_id)
+  const credentialRequest = modelTokenRequest(command.id, command.claim_token)
   const modelCredential = await device.request<ModelCredential>(credentialRequest.path, credentialRequest.init)
   if (!modelCredential.gateway.configured) {
     const message = "Модельный шлюз PrimeKit не настроен на сервере"
