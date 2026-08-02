@@ -3,7 +3,7 @@ import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
 import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
 import primekitThemeJson from "../../../ui/src/theme/themes/primekit.json"
 import { randomUUID } from "node:crypto"
-import { rmSync } from "node:fs"
+import { existsSync, rmSync } from "node:fs"
 import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -20,13 +20,11 @@ const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
+const primekitRendererProtocol = "primekit-ui"
+const primekitRendererRoot = join(root, "../../resources/primekit-web")
 const clipboardWritePermission = "clipboard-sanitized-write"
 const notificationPermission = "notifications"
 const rendererPermissions = new Set([clipboardWritePermission, notificationPermission])
-const primekitWebURL = process.env.PRIMEKIT_WEB_APP_URL ?? "https://primekit-job.ru/ai?desktop=1"
-const primekitWebOrigin = new URL(primekitWebURL).origin
-const forceLegacyRenderer = process.env.PRIMEKIT_USE_LEGACY_RENDERER === "1" || Boolean(process.env.ELECTRON_RENDERER_URL)
-const forceWebRenderer = process.env.PRIMEKIT_FORCE_WEB_RENDERER === "1"
 const primekitTheme = primekitThemeJson as DesktopTheme
 const primekitBackground = {
   light: resolveThemeVariant(primekitTheme.light, false)["background-base"],
@@ -38,6 +36,15 @@ const jsCallStacksDocumentPolicy = "include-js-call-stacks-in-crash-reports"
 protocol.registerSchemesAsPrivileged([
   {
     scheme: rendererProtocol,
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: primekitRendererProtocol,
     privileges: {
       secure: true,
       standard: true,
@@ -176,7 +183,7 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   const mode = tone()
-  const webRenderer = !forceLegacyRenderer && (forceWebRenderer || primeKitAccount.signedIn())
+  const primekitRenderer = primeKitAccount.signedIn() && existsSync(join(primekitRendererRoot, "index.html"))
   const win = new BrowserWindow({
     x: state.x,
     y: state.y,
@@ -201,7 +208,7 @@ export function createMainWindow(id: string = randomUUID()) {
         }
       : {}),
     webPreferences: {
-      preload: webRenderer ? undefined : join(root, "../preload/index.js"),
+      preload: primekitRenderer ? undefined : join(root, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -209,27 +216,25 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   allowRendererPermissions(win)
-  guardNavigation(win, webRenderer)
+  guardPrimeKitNavigation(win, primekitRenderer)
   wireWindowRecovery(win, id)
 
-  if (!webRenderer) {
-    win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-      const { requestHeaders } = details
-      upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-      callback({ requestHeaders })
-    })
+  win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const { requestHeaders } = details
+    upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
+    callback({ requestHeaders })
+  })
 
-    win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-      const { responseHeaders = {} } = details
-      addRendererHeaders(details.url, responseHeaders)
-      callback({ responseHeaders })
-    })
-  }
+  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const { responseHeaders = {} } = details
+    addRendererHeaders(details.url, responseHeaders)
+    callback({ responseHeaders })
+  })
 
   state.manage(win)
   registerWindow(win, id)
   wireFullscreen(win)
-  void loadWindow(win, "index.html", webRenderer)
+  void loadWindow(win, "index.html", primekitRenderer)
   wireZoom(win)
 
   win.once("ready-to-show", () => {
@@ -261,62 +266,79 @@ function windowDataFile(id: string) {
 }
 
 export function registerRendererProtocol() {
-  if (protocol.isProtocolHandled(rendererProtocol)) return
-
-  protocol.handle(rendererProtocol, async (request) => {
-    const url = new URL(request.url)
-    if (url.host !== rendererHost) {
-      writeLog("protocol", "rejected host", { url: request.url }, "warn")
-      return new Response("Not found", { status: 404 })
-    }
-
-    const file = resolve(rendererRoot, `.${decodeURIComponent(url.pathname)}`)
-    const rel = relative(rendererRoot, file)
-    if (rel.startsWith("..") || isAbsolute(rel)) {
-      writeLog("protocol", "rejected path", { url: request.url, file }, "warn")
-      return new Response("Not found", { status: 404 })
-    }
-
-    try {
-      const range = request.headers.get("range")
-      const response = await net.fetch(pathToFileURL(file).toString(), {
-        headers: range ? { range } : undefined,
-      })
-      if (response.status >= 400) {
-        writeLog(
-          "protocol",
-          "fetch failed",
-          {
-            url: request.url,
-            file,
-            status: response.status,
-            statusText: response.statusText,
-          },
-          "error",
-        )
+  if (!protocol.isProtocolHandled(rendererProtocol))
+    protocol.handle(rendererProtocol, async (request) => {
+      const url = new URL(request.url)
+      if (url.host !== rendererHost) {
+        writeLog("protocol", "rejected host", { url: request.url }, "warn")
+        return new Response("Not found", { status: 404 })
       }
-      return addDocumentPolicy(response, file)
-    } catch (error) {
-      writeLog("protocol", "fetch error", { url: request.url, file, error }, "error")
-      return new Response("Not found", { status: 404 })
-    }
-  })
+
+      const file = resolve(rendererRoot, `.${decodeURIComponent(url.pathname)}`)
+      const rel = relative(rendererRoot, file)
+      if (rel.startsWith("..") || isAbsolute(rel)) {
+        writeLog("protocol", "rejected path", { url: request.url, file }, "warn")
+        return new Response("Not found", { status: 404 })
+      }
+
+      try {
+        const range = request.headers.get("range")
+        const response = await net.fetch(pathToFileURL(file).toString(), {
+          headers: range ? { range } : undefined,
+        })
+        if (response.status >= 400) {
+          writeLog(
+            "protocol",
+            "fetch failed",
+            {
+              url: request.url,
+              file,
+              status: response.status,
+              statusText: response.statusText,
+            },
+            "error",
+          )
+        }
+        return addDocumentPolicy(response, file)
+      } catch (error) {
+        writeLog("protocol", "fetch error", { url: request.url, file, error }, "error")
+        return new Response("Not found", { status: 404 })
+      }
+    })
+
+  if (!protocol.isProtocolHandled(primekitRendererProtocol)) {
+    protocol.handle(primekitRendererProtocol, (request) => servePrimeKitRenderer(request))
+  }
 }
 
-async function loadWindow(win: BrowserWindow, html: string, webRenderer: boolean) {
-  if (webRenderer) {
-    if (!primeKitAccount.signedIn()) {
-      await win.loadURL(primekitWebURL)
-      return
-    }
+async function servePrimeKitRenderer(request: Request) {
+  const url = new URL(request.url)
+  if (url.host !== rendererHost) return new Response("Not found", { status: 404 })
+
+  const requested = resolve(primekitRendererRoot, `.${decodeURIComponent(url.pathname)}`)
+  const rel = relative(primekitRendererRoot, requested)
+  if (rel.startsWith("..") || isAbsolute(rel)) return new Response("Not found", { status: 404 })
+  const file =
+    existsSync(requested) && !url.pathname.endsWith("/") ? requested : join(primekitRendererRoot, "index.html")
+
+  try {
+    return await net.fetch(pathToFileURL(file).toString())
+  } catch (error) {
+    writeLog("protocol", "PrimeKit renderer fetch failed", { url: request.url, file, error }, "error")
+    return new Response("Not found", { status: 404 })
+  }
+}
+
+async function loadWindow(win: BrowserWindow, html: string, primekitRenderer: boolean) {
+  if (primekitRenderer) {
     try {
       const handoff = await primeKitAccount.request<{ ticket: string }>("/auth/desktop-web-ticket", { method: "POST" })
-      const url = new URL("/auth/desktop", primekitWebOrigin)
+      const url = new URL(`${primekitRendererProtocol}://${rendererHost}/auth/desktop`)
       url.hash = new URLSearchParams({ ticket: handoff.ticket }).toString()
       await win.loadURL(url.toString())
     } catch (error) {
-      writeLog("primekit", "desktop web handoff failed", { error }, "error")
-      await win.loadURL(primekitWebURL)
+      writeLog("primekit", "bundled renderer handoff failed", { error }, "error")
+      await win.loadURL(`${primekitRendererProtocol}://${rendererHost}/ai?desktop=1`)
     }
     return
   }
@@ -331,15 +353,16 @@ async function loadWindow(win: BrowserWindow, html: string, webRenderer: boolean
   void win.loadURL(`${rendererProtocol}://${rendererHost}/${html}`)
 }
 
-function guardNavigation(win: BrowserWindow, webRenderer: boolean) {
-  if (!webRenderer) return
+function guardPrimeKitNavigation(win: BrowserWindow, primekitRenderer: boolean) {
+  if (!primekitRenderer) return
+  const localOrigin = `${primekitRendererProtocol}://${rendererHost}`
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (URL.canParse(url) && new URL(url).origin === primekitWebOrigin) return { action: "allow" }
+    if (url.startsWith(localOrigin)) return { action: "allow" }
     void shell.openExternal(url)
     return { action: "deny" }
   })
   win.webContents.on("will-navigate", (event, url) => {
-    if (URL.canParse(url) && new URL(url).origin === primekitWebOrigin) return
+    if (url.startsWith(localOrigin)) return
     event.preventDefault()
     void shell.openExternal(url)
   })
@@ -479,7 +502,7 @@ function allowRendererPermissions(win: BrowserWindow) {
 }
 
 function isTrustedRendererUrl(value?: string) {
-  if (value && URL.canParse(value) && new URL(value).origin === primekitWebOrigin) return true
+  if (value?.startsWith(`${primekitRendererProtocol}://${rendererHost}/`)) return true
   return isRendererUrl(value)
 }
 
