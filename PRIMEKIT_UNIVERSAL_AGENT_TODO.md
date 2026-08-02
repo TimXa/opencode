@@ -57,6 +57,9 @@
   6 provider calls, wake 52 ms, после restart 2869 ms.
 - Последний Windows artifact `primekit-windows-x64-unsigned-qa` (`8830698626`, 333 455 155 bytes)
   загружен на 14 дней.
+- Browser coordinator + два изолированных экземпляра packaged Mac app на общей PostgreSQL-среде:
+  один cloud chat прошёл runtime A → runtime B → runtime A; три локальных marker-файла и ровно
+  три канонических ответа — pass. Это проверяет UI-переключение хоста, но не заменяет физический Windows gate.
 
 ## P0 — до тестовой раздачи
 
@@ -85,6 +88,7 @@
   - [x] Протокольный PostgreSQL system E2E Mac → Windows → Mac в одном cloud chat.
   - [x] Packaged device-worker для назначенных Mac/Windows turns и browser UI coordinator.
   - [x] Packaged Mac worker → локальный write → canonical cloud result на общей PostgreSQL-среде.
+  - [x] Browser UI → два изолированных packaged workers → A → B → A в одном cloud chat.
   - [ ] Одновременно запустить установленные Mac и Windows workers против одного доступного backend и пройти UI coordinator.
 - [x] Исправить platform-specific ошибки первых Windows runs и повторить до зелёного результата.
 
@@ -117,7 +121,7 @@
 
 ## Внешние prerequisites
 
-- [ ] GitHub write authentication для `TimXa/opencode` и `TimXa/Omar1`.
+- [x] GitHub write authentication для `TimXa/opencode` и `TimXa/Omar1` (проверено push; временный PAT не хранится в проекте).
 - [ ] `PRIMEKIT_CI_REPO_TOKEN` для checkout приватного backend в Actions.
 - [ ] Apple: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_PATH`,
       `APPLE_API_KEY`, `APPLE_API_ISSUER`.
