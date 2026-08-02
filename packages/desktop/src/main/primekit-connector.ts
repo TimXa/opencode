@@ -562,14 +562,6 @@ async function execute(
         )
         return
       }
-      // A completed runner can remain registered for a brief interval after
-      // session status becomes idle. Flush it before appending the next cloud
-      // turn so ensureRunning cannot attach the new prompt to the old result.
-      await localRequest(
-        server,
-        `/session/${localSessionID}/abort?directory=${encodeURIComponent(root)}`,
-        { method: "POST" },
-      )
     }
     if (!localSessionID) {
       const created = await localRequest<{ id: string }>(server, `/session?directory=${encodeURIComponent(root)}`, {
