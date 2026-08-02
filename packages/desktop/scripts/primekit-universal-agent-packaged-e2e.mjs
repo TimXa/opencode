@@ -30,6 +30,20 @@ for (const name of ["data", "config", "cache", "state"]) mkdirSync(join(xdgRoot,
 
 const delay = (ms) => new Promise((done) => setTimeout(done, ms))
 
+function canonicalPath(value) {
+  try {
+    const path = realpathSync(value)
+    return process.platform === "win32" ? path.toLowerCase() : path
+  } catch {
+    const path = resolve(value)
+    return process.platform === "win32" ? path.toLowerCase() : path
+  }
+}
+
+const samePath = (left, right) => (
+  typeof left === "string" && typeof right === "string" && canonicalPath(left) === canonicalPath(right)
+)
+
 async function request(path, init = {}, expectedStatus = 200) {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
@@ -123,12 +137,14 @@ try {
     startApp()
     const runtime = await waitFor("packaged UI runtime registration", async () => {
       const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
-      return runtimes.find((item) => item.workspace_path === workspace && item.status === "online")
+      return runtimes.find((item) => (
+        item.device_id === deviceID && samePath(item.workspace_path, workspace) && item.status === "online"
+      ))
     })
     await verifyComputerCapability(runtime.id, auth)
     const grant = await waitFor("packaged UI workspace grant", async () => {
       const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
-      return grants.find((item) => item.active && item.root_path_display === workspace)
+      return grants.find((item) => item.active && samePath(item.root_path_display, workspace))
     })
     const ready = {
       status: "ui-ready",
@@ -178,12 +194,14 @@ try {
 
   const runtime = await waitFor("packaged runtime registration", async () => {
     const runtimes = await request("/desktop-agent/runtimes", { headers: auth })
-    return runtimes.find((item) => item.workspace_path === workspace && item.status === "online")
+    return runtimes.find((item) => (
+      item.device_id === deviceID && samePath(item.workspace_path, workspace) && item.status === "online"
+    ))
   })
   await verifyComputerCapability(runtime.id, auth)
   const grant = await waitFor("packaged workspace grant", async () => {
     const grants = await request(`/desktop-agent/folder-grants?runtime_id=${runtime.id}`, { headers: auth })
-    return grants.find((item) => item.active && item.root_path_display === workspace)
+    return grants.find((item) => item.active && samePath(item.root_path_display, workspace))
   })
   await request(`/desktop-agent/chats/${chat.id}/target`, {
     method: "PUT",
