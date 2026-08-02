@@ -4,11 +4,12 @@ import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
 import primekitThemeJson from "../../../ui/src/theme/themes/primekit.json"
 import { randomUUID } from "node:crypto"
 import { rmSync } from "node:fs"
-import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol } from "electron"
+import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
 import { exportDebugLogs, write as writeLog } from "./logging"
+import { primeKitAccount } from "./primekit-account"
 import { getStore, removeStoreFile } from "./store"
 import { PINCH_ZOOM_ENABLED_KEY, WINDOW_IDS_KEY } from "./store-keys"
 import { createUnresponsiveSampler } from "./unresponsive"
@@ -22,6 +23,10 @@ const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
 const notificationPermission = "notifications"
 const rendererPermissions = new Set([clipboardWritePermission, notificationPermission])
+const primekitWebURL = process.env.PRIMEKIT_WEB_APP_URL ?? "https://primekit-job.ru/ai?desktop=1"
+const primekitWebOrigin = new URL(primekitWebURL).origin
+const forceLegacyRenderer = process.env.PRIMEKIT_USE_LEGACY_RENDERER === "1" || Boolean(process.env.ELECTRON_RENDERER_URL)
+const forceWebRenderer = process.env.PRIMEKIT_FORCE_WEB_RENDERER === "1"
 const primekitTheme = primekitThemeJson as DesktopTheme
 const primekitBackground = {
   light: resolveThemeVariant(primekitTheme.light, false)["background-base"],
@@ -171,6 +176,7 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   const mode = tone()
+  const webRenderer = !forceLegacyRenderer && (forceWebRenderer || primeKitAccount.signedIn())
   const win = new BrowserWindow({
     x: state.x,
     y: state.y,
@@ -195,7 +201,7 @@ export function createMainWindow(id: string = randomUUID()) {
         }
       : {}),
     webPreferences: {
-      preload: join(root, "../preload/index.js"),
+      preload: webRenderer ? undefined : join(root, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -203,24 +209,27 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   allowRendererPermissions(win)
+  guardNavigation(win, webRenderer)
   wireWindowRecovery(win, id)
 
-  win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-    const { requestHeaders } = details
-    upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-    callback({ requestHeaders })
-  })
+  if (!webRenderer) {
+    win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+      const { requestHeaders } = details
+      upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
+      callback({ requestHeaders })
+    })
 
-  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const { responseHeaders = {} } = details
-    addRendererHeaders(details.url, responseHeaders)
-    callback({ responseHeaders })
-  })
+    win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      const { responseHeaders = {} } = details
+      addRendererHeaders(details.url, responseHeaders)
+      callback({ responseHeaders })
+    })
+  }
 
   state.manage(win)
   registerWindow(win, id)
   wireFullscreen(win)
-  loadWindow(win, "index.html")
+  void loadWindow(win, "index.html", webRenderer)
   wireZoom(win)
 
   win.once("ready-to-show", () => {
@@ -294,7 +303,24 @@ export function registerRendererProtocol() {
   })
 }
 
-function loadWindow(win: BrowserWindow, html: string) {
+async function loadWindow(win: BrowserWindow, html: string, webRenderer: boolean) {
+  if (webRenderer) {
+    if (!primeKitAccount.signedIn()) {
+      await win.loadURL(primekitWebURL)
+      return
+    }
+    try {
+      const handoff = await primeKitAccount.request<{ ticket: string }>("/auth/desktop-web-ticket", { method: "POST" })
+      const url = new URL("/auth/desktop", primekitWebOrigin)
+      url.hash = new URLSearchParams({ ticket: handoff.ticket }).toString()
+      await win.loadURL(url.toString())
+    } catch (error) {
+      writeLog("primekit", "desktop web handoff failed", { error }, "error")
+      await win.loadURL(primekitWebURL)
+    }
+    return
+  }
+
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
     const url = new URL(html, devUrl)
@@ -303,6 +329,20 @@ function loadWindow(win: BrowserWindow, html: string) {
   }
 
   void win.loadURL(`${rendererProtocol}://${rendererHost}/${html}`)
+}
+
+function guardNavigation(win: BrowserWindow, webRenderer: boolean) {
+  if (!webRenderer) return
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (URL.canParse(url) && new URL(url).origin === primekitWebOrigin) return { action: "allow" }
+    void shell.openExternal(url)
+    return { action: "deny" }
+  })
+  win.webContents.on("will-navigate", (event, url) => {
+    if (URL.canParse(url) && new URL(url).origin === primekitWebOrigin) return
+    event.preventDefault()
+    void shell.openExternal(url)
+  })
 }
 
 function wireWindowRecovery(win: BrowserWindow, name: string) {
@@ -439,6 +479,7 @@ function allowRendererPermissions(win: BrowserWindow) {
 }
 
 function isTrustedRendererUrl(value?: string) {
+  if (value && URL.canParse(value) && new URL(value).origin === primekitWebOrigin) return true
   return isRendererUrl(value)
 }
 

@@ -46,6 +46,33 @@ type ChatMessage = {
   content: string
   created_at: string
   client_message_id?: string | null
+  steps_json?: PrimeKitStep[] | null
+  tool_calls_json?: PrimeKitStep[] | null
+  attached_files_json?: Array<{ file_id?: string; filename?: string; name?: string; size?: number; type?: string }> | null
+}
+type PrimeKitStep = {
+  type?: string
+  content?: string
+  phase?: string
+  name?: string
+  displayName?: string
+  args?: string | Record<string, unknown>
+  result?: string
+  success?: boolean
+  status?: string
+  item_id?: string
+  codex_item_id?: string
+  items?: Array<{ step?: string; text?: string; content?: string; status?: string }>
+}
+type PrimeKitStreamEvent = PrimeKitStep & {
+  type: string
+  delta?: string
+  output?: string
+  file_id?: string
+  filename?: string
+  size?: number
+  mime_type?: string
+  steps?: PrimeKitStep[]
 }
 
 const directory = homedir()
@@ -69,6 +96,8 @@ const messageID = (message: ChatMessage) =>
 const millis = (value?: string | null) => (value ? Date.parse(value) || Date.now() : Date.now())
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const basic = (server: LocalServer) => `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`
+const downloadMarker = /\[DOWNLOAD:(\w+):([^\]]+)\]/g
+let fileOrigin = ""
 const kitModel = {
   id: "kit",
   providerID: "kit",
@@ -112,6 +141,145 @@ function session(chat: Chat, space?: Space) {
   }
 }
 
+const objectArgs = (value: PrimeKitStep["args"]) => {
+  if (!value) return {}
+  if (typeof value === "object") return value
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === "object" ? parsed : { value }
+  } catch {
+    return { value }
+  }
+}
+
+const richParts = (item: ChatMessage, sid: string, mid: string, created: number) => {
+  const parts: Array<Record<string, unknown>> = []
+  const steps = item.steps_json?.length ? item.steps_json : item.tool_calls_json ?? []
+  let hasText = false
+  let index = 0
+  const id = (prefix: string, step?: PrimeKitStep) =>
+    `prt_pk_${item.id}_${prefix}_${step?.item_id || step?.codex_item_id || index++}`
+
+  for (const step of steps) {
+    if (step.type === "text_block" && step.content) {
+      hasText = true
+      parts.push({ id: id("text", step), sessionID: sid, messageID: mid, type: "text", text: step.content, time: { start: created, end: created }, metadata: { phase: step.phase } })
+      continue
+    }
+    if (step.type === "thinking" && step.content) {
+      parts.push({ id: id("reasoning", step), sessionID: sid, messageID: mid, type: "reasoning", text: step.content, time: { start: created, end: created } })
+      continue
+    }
+    if (step.type === "plan" && step.items?.length) {
+      const input = {
+        todos: step.items.map((todo) => ({
+          content: todo.step || todo.text || todo.content || "Задача",
+          status: todo.status || "pending",
+          priority: "medium",
+        })),
+      }
+      parts.push({
+        id: id("plan", step), sessionID: sid, messageID: mid, type: "tool", callID: step.item_id || `plan-${index}`,
+        tool: "todowrite", state: { status: "completed", input, output: "План обновлён", title: "План", metadata: {}, time: { start: created, end: created } },
+      })
+      continue
+    }
+    if (step.type === "tool" || step.name) {
+      const callID = step.item_id || step.codex_item_id || `tool-${index}`
+      const running = step.status === "running"
+      const failed = step.success === false || step.status === "error" || step.status === "interrupted"
+      const state = running
+        ? { status: "running", input: objectArgs(step.args), title: step.displayName || step.name, time: { start: created } }
+        : failed
+          ? { status: "error", input: objectArgs(step.args), error: step.result || "Команда завершилась с ошибкой", time: { start: created, end: created } }
+          : { status: "completed", input: objectArgs(step.args), output: step.result || "", title: step.displayName || step.name || "Инструмент", metadata: {}, time: { start: created, end: created } }
+      parts.push({ id: id("tool", step), sessionID: sid, messageID: mid, type: "tool", callID, tool: step.name || "tool", state })
+    }
+  }
+
+  if (!hasText && item.content) {
+    parts.push({ id: id("text"), sessionID: sid, messageID: mid, type: "text", text: item.content, time: { start: created, end: created } })
+  }
+
+  const files = [...(item.attached_files_json ?? [])]
+  for (const step of steps) {
+    for (const match of String(step.result || "").matchAll(downloadMarker)) {
+      files.push({ file_id: match[1], filename: match[2] })
+    }
+  }
+  const seen = new Set<string>()
+  for (const file of files) {
+    const fileID = file.file_id
+    const filename = file.filename || file.name
+    if (!fileID || !filename || seen.has(fileID)) continue
+    seen.add(fileID)
+    parts.push({
+      id: id("file"), sessionID: sid, messageID: mid, type: "file", filename,
+      mime: file.type || "application/octet-stream", url: `${fileOrigin}/primekit/files/${encodeURIComponent(fileID)}/download`,
+    })
+  }
+  return parts
+}
+
+const applyStreamEvent = (item: ChatMessage, event: PrimeKitStreamEvent) => {
+  const steps = item.steps_json ?? (item.steps_json = [])
+  const itemID = event.item_id || event.codex_item_id
+  if (event.type === "answer") {
+    if (event.steps?.length) item.steps_json = event.steps
+    if (event.content) item.content = event.content
+    return
+  }
+  if (event.type === "text_delta" && event.content) {
+    const last = steps.at(-1)
+    if (last?.type === "text_block" && (last.item_id || last.codex_item_id) === itemID && last.phase === event.phase) {
+      last.content = `${last.content || ""}${event.content}`
+    } else {
+      steps.push({ type: "text_block", content: event.content, phase: event.phase, item_id: itemID })
+    }
+    return
+  }
+  if (event.type === "thinking" && event.content) {
+    const last = steps.at(-1)
+    if (last?.type === "thinking" && (last.item_id || last.codex_item_id) === itemID) {
+      last.content = `${last.content || ""}${event.content}`
+    } else {
+      steps.push({ type: "thinking", content: event.content, item_id: itemID })
+    }
+    return
+  }
+  if (event.type === "tool_start") {
+    steps.push({ ...event, type: "tool", status: "running", item_id: itemID })
+    return
+  }
+  if (event.type === "tool_delta") {
+    const target = [...steps].reverse().find((step) => step.type === "tool" && (!itemID || step.item_id === itemID))
+    if (target) target.result = `${target.result || ""}${event.content || event.delta || event.output || ""}`
+    return
+  }
+  if (event.type === "tool_result") {
+    const target = [...steps].reverse().find((step) => step.type === "tool" && (!itemID || step.item_id === itemID))
+    if (target) Object.assign(target, event, { type: "tool", status: event.success === false ? "error" : "done", item_id: itemID })
+    else steps.push({ ...event, type: "tool", status: event.success === false ? "error" : "done", item_id: itemID })
+    return
+  }
+  if (event.type === "plan_update" && event.items?.length) {
+    const plan = steps.find((step) => step.type === "plan")
+    if (plan) plan.items = event.items
+    else steps.push({ type: "plan", items: event.items, item_id: itemID })
+    return
+  }
+  if (event.type === "file_available" && event.file_id && event.filename) {
+    const files = item.attached_files_json ?? (item.attached_files_json = [])
+    if (!files.some((file) => file.file_id === event.file_id)) {
+      files.push({ file_id: event.file_id, filename: event.filename, size: event.size, type: event.mime_type })
+    }
+    return
+  }
+  if (event.type === "rag_result" || event.type === "system" || event.type === "error") {
+    steps.push({ type: event.type === "error" ? "tool" : "thinking", name: event.type, content: event.content, result: event.content, success: event.type !== "error", status: "done", item_id: itemID })
+  }
+}
+
 function message(message: ChatMessage, chat: Chat, previousUserID: string, location: ChatLocation = { kind: "general", chatID: chat.id }) {
   const id = messageID(message)
   const created = millis(message.created_at)
@@ -139,19 +307,7 @@ function message(message: ChatMessage, chat: Chat, previousUserID: string, locat
           cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         }
-  return {
-    info,
-    parts: [
-      {
-        id: `prt_pk_${message.id}`,
-        sessionID: sessionID(location),
-        messageID: id,
-        type: "text",
-        text: message.content ?? "",
-        time: { start: created, end: created },
-      },
-    ],
-  }
+  return { info, parts: richParts(message, sessionID(location), id, created) }
 }
 
 async function body(request: IncomingMessage) {
@@ -196,10 +352,44 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
   const streamTask = async (chat: Chat, location: ChatLocation, taskID: number, parentID: string) => {
     const sid = sessionID(location)
     const mid = `msg_pktask_${taskID}`
-    const pid = `prt_pktask_${taskID}`
     let text = ""
     let started = false
     const startedAt = Date.now()
+    const live: ChatMessage = {
+      id: -taskID,
+      role: "assistant",
+      content: "",
+      created_at: new Date(startedAt).toISOString(),
+      steps_json: [],
+      attached_files_json: [],
+    }
+    const ensureStarted = () => {
+      if (started) return
+      started = true
+      emit("message.updated", {
+        sessionID: sid,
+        info: {
+          id: mid,
+          sessionID: sid,
+          role: "assistant",
+          time: { created: startedAt },
+          parentID,
+          modelID: "kit",
+          providerID: "kit",
+          mode: "build",
+          agent: "build",
+          path: { cwd: directory, root: directory },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+      })
+    }
+    const publishLive = () => {
+      ensureStarted()
+      for (const part of richParts(live, sid, mid, startedAt)) {
+        emit("message.part.updated", { sessionID: sid, part, time: Date.now() })
+      }
+    }
     try {
       const response = await primeKitAccount.open(chatPath(location, `/tasks/${taskID}/stream?after=0`), {
         headers: { accept: "text/event-stream" },
@@ -221,44 +411,16 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
             .map((line) => line.slice(5).trim())
             .join("\n")
           if (!raw) continue
-          const event = JSON.parse(raw) as { type?: string; content?: string }
+          const event = JSON.parse(raw) as PrimeKitStreamEvent
+          applyStreamEvent(live, event)
           if (event.type === "text_delta" && event.content) {
-            if (!started) {
-              started = true
-              emit("message.updated", {
-                sessionID: sid,
-                info: {
-                  id: mid,
-                  sessionID: sid,
-                  role: "assistant",
-                  time: { created: startedAt },
-                  parentID,
-                  modelID: "kit",
-                  providerID: "kit",
-                  mode: "build",
-                  agent: "build",
-                  path: { cwd: directory, root: directory },
-                  cost: 0,
-                  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-                },
-              })
-              emit("message.part.updated", {
-                sessionID: sid,
-                part: { id: pid, sessionID: sid, messageID: mid, type: "text", text: "", time: { start: startedAt } },
-                time: startedAt,
-              })
-            }
             text += event.content
-            emit("message.part.delta", { sessionID: sid, messageID: mid, partID: pid, field: "text", delta: event.content })
           }
           if (event.type === "answer" && event.content && !text) text = event.content
+          if (!["usage", "connected", "heartbeat"].includes(event.type)) publishLive()
         }
       }
-      emit("message.part.updated", {
-        sessionID: sid,
-        part: { id: pid, sessionID: sid, messageID: mid, type: "text", text, time: { start: startedAt, end: Date.now() } },
-        time: Date.now(),
-      })
+      if (started) publishLive()
       const fresh = await primeKitAccount.request<Chat>(chatPath(location, "?limit=20"))
       const persisted = [...(fresh.messages ?? [])].reverse().find((item) => item.role === "assistant")
       if (persisted) {
@@ -276,15 +438,54 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     }
   }
 
-  const watchDesktopCommand = async (chat: Chat, location: ChatLocation, commandID: number) => {
+  const watchDesktopCommand = async (chat: Chat, location: ChatLocation, commandID: number, parentID: string) => {
     const sid = sessionID(location)
+    const mid = `msg_pkcommand_${commandID}`
+    const startedAt = Date.now()
+    let after = -1
+    let started = false
+    const live: ChatMessage = {
+      id: -commandID,
+      role: "assistant",
+      content: "",
+      created_at: new Date(startedAt).toISOString(),
+      steps_json: [],
+      attached_files_json: [],
+    }
+    const publishLive = () => {
+      if (!started) {
+        started = true
+        emit("message.updated", {
+          sessionID: sid,
+          info: {
+            id: mid, sessionID: sid, role: "assistant", time: { created: startedAt }, parentID,
+            modelID: "kit", providerID: "kit", mode: "build", agent: "build",
+            path: { cwd: directory, root: directory }, cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          },
+        })
+      }
+      for (const part of richParts(live, sid, mid, startedAt)) {
+        emit("message.part.updated", { sessionID: sid, part, time: Date.now() })
+      }
+    }
     try {
       for (let attempt = 0; attempt < 3_600; attempt++) {
-        const command = await primeKitAccount.request<{ status: string; error_text?: string | null }>(
-          `/desktop-agent/commands/${commandID}`,
-        )
+        const [command, events] = await Promise.all([
+          primeKitAccount.request<{ status: string; error_text?: string | null }>(`/desktop-agent/commands/${commandID}`),
+          primeKitAccount.request<Array<{ event_index: number; type: string; payload?: Record<string, unknown> }>>(
+            `/desktop-agent/commands/${commandID}/events?after=${after}&limit=500`,
+          ),
+        ])
+        for (const event of events) {
+          after = Math.max(after, event.event_index)
+          const normalized = { type: event.type, ...(event.payload ?? {}) } as PrimeKitStreamEvent
+          applyStreamEvent(live, normalized)
+          if (!["session", "progress", "approval_required", "approval_decision"].includes(event.type)) publishLive()
+        }
         if (["completed", "error", "rejected", "cancelled"].includes(command.status)) {
           const fresh = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
+          if (started) emit("message.removed", { sessionID: sid, messageID: mid })
           await publishChat(fresh, false, location.kind === "space"
             ? (await primeKitAccount.request<Space[]>("/servers/")).find((item) => item.id === location.spaceID)
             : undefined)
@@ -373,8 +574,26 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         response.statusCode = 204
         return response.end()
       }
+      const localURL = new URL(request.url ?? "/", "http://127.0.0.1")
+      const fileMatch = localURL.pathname.match(/^\/primekit\/files\/([^/]+)\/download$/)
+      if (fileMatch && request.method === "GET") {
+        const upstream = await primeKitAccount.open(`/files/${encodeURIComponent(decodeURIComponent(fileMatch[1]))}/download`)
+        response.statusCode = upstream.status
+        for (const header of ["content-type", "content-disposition", "content-length"]) {
+          const value = upstream.headers.get(header)
+          if (value) response.setHeader(header, value)
+        }
+        if (!upstream.body) return response.end()
+        const reader = upstream.body.getReader()
+        for (;;) {
+          const next = await reader.read()
+          if (next.done) break
+          response.write(Buffer.from(next.value))
+        }
+        return response.end()
+      }
       if (request.headers.authorization !== basic(sidecar)) return json(response, 401, { error: "Unauthorized" })
-      const url = new URL(request.url ?? "/", "http://127.0.0.1")
+      const url = localURL
       if (url.pathname === "/global/health") return json(response, 200, { healthy: true, version: pkg.version })
       if (url.pathname === "/global/event") {
         response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" })
@@ -530,7 +749,12 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         statuses.set(sid, { type: "busy" })
         emit("session.status", { sessionID: sid, status: { type: "busy" } })
         if (task.executor_kind === "desktop" && typeof task.desktop_command_id === "number") {
-          void watchDesktopCommand(chat, location, task.desktop_command_id)
+          void watchDesktopCommand(
+            chat,
+            location,
+            task.desktop_command_id,
+            persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`,
+          )
         } else {
           void streamTask(chat, location, task.task_id, persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`)
         }
@@ -547,8 +771,20 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         return json(response, 200, session(chat, space))
       }
       if (!child && request.method === "PATCH") {
-        const input = JSON.parse((await body(request)).toString() || "{}") as { title?: string }
-        const chat = await primeKitAccount.request<Chat>(chatPath(location), { method: "PATCH", body: JSON.stringify(input) })
+        const input = JSON.parse((await body(request)).toString() || "{}") as {
+          title?: string
+          metadata?: { primekit_is_pinned?: boolean }
+        }
+        let chat = input.title
+          ? await primeKitAccount.request<Chat>(chatPath(location), {
+              method: "PATCH",
+              body: JSON.stringify({ title: input.title }),
+            })
+          : await primeKitAccount.request<Chat>(chatPath(location))
+        const pinned = input.metadata?.primekit_is_pinned
+        if (typeof pinned === "boolean" && Boolean(chat.is_pinned) !== pinned) {
+          chat = await primeKitAccount.request<Chat>(chatPath(location, "/pin"), { method: "POST" })
+        }
         const space = location.kind === "space" ? (await primeKitAccount.request<Space[]>("/servers/")).find((item) => item.id === location.spaceID) : undefined
         return json(response, 200, session(chat, space))
       }
@@ -571,6 +807,7 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
   })
   const address = http.address()
   if (!address || typeof address === "string") throw new Error("Не удалось запустить PrimeKit bridge")
+  fileOrigin = `http://127.0.0.1:${address.port}`
 
   const sidebarEvents = async () => {
     while (!controller.signal.aborted) {

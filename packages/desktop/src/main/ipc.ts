@@ -60,9 +60,11 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("primekit-auth-state", () => primeKitAccount.state())
   ipcMain.handle("primekit-auth-request-code", (_event, email: string) => primeKitAccount.requestEmailCode(email))
-  ipcMain.handle("primekit-auth-verify-code", (_event, email: string, code: string) =>
-    primeKitAccount.verifyEmailCode(email, code),
-  )
+  ipcMain.handle("primekit-auth-verify-code", async (_event, email: string, code: string) => {
+    const user = await primeKitAccount.verifyEmailCode(email, code)
+    setTimeout(() => deps.relaunch(), 150)
+    return user
+  })
   ipcMain.handle("primekit-auth-logout", () => primeKitAccount.logout())
   ipcMain.handle("primekit-computer-access-request", async () => {
     const access = await requestPrimeKitFullDeviceAccess(true)

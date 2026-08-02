@@ -17,6 +17,7 @@ import {
   homeProjectNavigation,
   homeProjectDirectories,
   homeSessionServerStatus,
+  getProjectAvatarSource,
   latestRootSession,
   toggleHomeProjectSelection,
 } from "./helpers"
@@ -24,6 +25,21 @@ import { pathKey } from "@/utils/path-key"
 import { ServerConnection } from "@/context/server"
 
 const serverKey = ServerConnection.Key.make
+
+test("uses a project image even when the project also has a fallback color", () => {
+  expect(getProjectAvatarSource("primekit-space-1", { color: "#84796a", url: "https://example.com/icon.svg" })).toBe(
+    "https://example.com/icon.svg",
+  )
+})
+
+test("resolves PrimeKit project images against the public asset host", () => {
+  expect(getProjectAvatarSource("primekit-space-1", { color: "#84796a", url: "/0224.svg" })).toBe(
+    "https://primekit-job.ru/tg-icons-svg/0224.svg",
+  )
+  expect(getProjectAvatarSource("primekit-space-1", { url: "/new.svg", override: "/0224.svg" })).toBe(
+    "https://primekit-job.ru/tg-icons-svg/0224.svg",
+  )
+})
 
 const session = (input: Partial<Session> & Pick<Session, "id" | "directory">) =>
   ({

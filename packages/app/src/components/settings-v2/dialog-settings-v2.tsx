@@ -26,8 +26,8 @@ export const DialogSettings: Component<{
   const layout = useLayout()
   const tabs = useTabs()
   const serverSync = useServerSync()
-  const [tab, setTab] = createSignal(props.defaultValue ?? "general")
   const primekit = Boolean(window.api?.primekit)
+  const [tab, setTab] = createSignal(props.defaultValue ?? (primekit ? "primekit" : "general"))
   const directory = createMemo(() => {
     const route = layout.route()
     if (route.type === "dir-new-sesssion") return route.dir
@@ -45,6 +45,16 @@ export const DialogSettings: Component<{
 
   return (
     <Dialog size="x-large" variant="settings" class="settings-v2-dialog">
+      <button
+        type="button"
+        class="absolute right-3 top-3 z-50 flex size-8 items-center justify-center rounded-lg text-v2-text-weak hover:bg-v2-surface-raised hover:text-v2-text-strong"
+        aria-label={language.t("common.close")}
+        onClick={() => dialog.close()}
+      >
+        <svg viewBox="0 0 20 20" class="size-4" fill="none" aria-hidden="true">
+          <path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-linecap="round" />
+        </svg>
+      </button>
       <TabsV2
         orientation="vertical"
         variant="settings"
@@ -62,17 +72,19 @@ export const DialogSettings: Component<{
                     <Show when={primekit}>
                       <TabsV2.Trigger value="primekit">
                         <Icon name="shield" />
-                        Аккаунт и устройства
+                        Аккаунт
                       </TabsV2.Trigger>
                     </Show>
-                    <TabsV2.Trigger value="general">
-                      <Icon name="sliders" />
-                      {language.t("settings.tab.general")}
-                    </TabsV2.Trigger>
-                    <TabsV2.Trigger value="shortcuts">
-                      <Icon name="keyboard" />
-                      {language.t("settings.tab.shortcuts")}
-                    </TabsV2.Trigger>
+                    <Show when={!primekit}>
+                      <TabsV2.Trigger value="general">
+                        <Icon name="sliders" />
+                        {language.t("settings.tab.general")}
+                      </TabsV2.Trigger>
+                      <TabsV2.Trigger value="shortcuts">
+                        <Icon name="keyboard" />
+                        {language.t("settings.tab.shortcuts")}
+                      </TabsV2.Trigger>
+                    </Show>
                   </div>
                 </div>
 

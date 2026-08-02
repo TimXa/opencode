@@ -49,6 +49,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { SessionRouteKey, SessionStateKey } from "@/utils/server-scope"
 import { listAllSessions } from "@/utils/session"
+import { sessionTitle } from "@/utils/session-title"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -82,7 +83,7 @@ import {
   type WorkspaceSidebarContext,
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
-import { SessionItem } from "./layout/sidebar-items"
+import { ProjectIcon, SessionItem } from "./layout/sidebar-items"
 
 export default function LegacyLayout(props: ParentProps) {
   const serverSDK = useServerSDK()
@@ -895,6 +896,27 @@ export default function LegacyLayout(props: ParentProps) {
         navigate(`/${params.dir}/session`)
       }
     }
+  }
+
+  const primeKitSessionActions = {
+    rename: async (session: Session) => {
+      const title = window.prompt("Новое название чата", sessionTitle(session.title))?.trim()
+      if (!title || title === session.title) return
+      await serverSDK().api.session.rename({ sessionID: session.id, directory: session.directory, title })
+    },
+    remove: async (session: Session) => {
+      if (!window.confirm(`Удалить чат «${sessionTitle(session.title)}»?`)) return
+      await serverSDK().api.session.remove({ sessionID: session.id, directory: session.directory })
+    },
+    pin: async (session: Session) => {
+      await serverSDK().client.session.update({
+        sessionID: session.id,
+        directory: session.directory,
+        metadata: {
+          primekit_is_pinned: !(session as Session & { isPinned?: boolean }).isPinned,
+        },
+      })
+    },
   }
 
   command.register("layout", () => {
@@ -2306,7 +2328,7 @@ export default function LegacyLayout(props: ParentProps) {
                       class="flex h-full min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
                       onClick={() => navigateToProject(project.worktree)}
                     >
-                      <IconV2 name="folder" size="small" class="shrink-0 text-white/60" />
+                      <ProjectIcon project={project} class="!size-6 !rounded-full" />
                       <span class="min-w-0 flex-1 truncate text-[14px] font-medium">{displayName(project)}</span>
                     </button>
                     <button
@@ -2334,6 +2356,7 @@ export default function LegacyLayout(props: ParentProps) {
                             dense
                             mobile={mobile}
                             sidebarExpanded={() => true}
+                            primekit={primeKitSessionActions}
                           />
                         )}
                       </For>

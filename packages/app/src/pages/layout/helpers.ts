@@ -96,9 +96,12 @@ const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
 
 export function getProjectAvatarSource(id?: string, icon?: { color?: string; url?: string; override?: string }) {
   if (id === OPENCODE_PROJECT_ID) return "/favicon.svg"
-  if (icon?.override) return icon.override
-  if (icon?.color) return undefined
-  return icon?.url
+  const source = icon?.override || icon?.url
+  if (id?.startsWith("primekit-") && source?.startsWith("/")) {
+    const path = /^\/\d{4}\.svg$/.test(source) ? `/tg-icons-svg${source}` : source
+    return `https://primekit-job.ru${path}`
+  }
+  return source
 }
 
 export function projectForSession<T extends { id?: string; worktree: string; sandboxes?: string[] }>(

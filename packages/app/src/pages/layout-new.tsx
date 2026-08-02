@@ -13,12 +13,16 @@ import { sessionTitle } from "@/utils/session-title"
 import { setNavigate } from "@/utils/notification-click"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
 import { useSettingsDialog } from "@/components/settings-dialog"
+import { useServerSDK } from "@/context/server-sdk"
+import type { Session } from "@opencode-ai/sdk/v2/client"
+import { ProjectIcon, compactAge } from "./layout/sidebar-items"
 
 export default function NewLayout(props: ParentProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const layout = useLayout()
   const serverSync = useServerSync()
+  const serverSDK = useServerSDK()
   const showSettings = useSettingsDialog(window.api?.primekit ? "primekit" : "general")
   setNavigate(navigate)
   const [state, setState] = createStore({
@@ -56,11 +60,23 @@ export default function NewLayout(props: ParentProps) {
     if (/^https?:\/\//.test(value)) return value
     return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
   })
-  const projectColor = (project: ReturnType<typeof projects>[number]) =>
-    ((project as typeof project & { icon?: { color?: string } }).icon?.color || "#84796a")
-  const projectIcon = (project: ReturnType<typeof projects>[number]) =>
-    (project as typeof project & { icon?: { url?: string } }).icon?.url
   const isPinned = (session: unknown) => Boolean((session as { isPinned?: boolean }).isPinned)
+  const renameChat = async (session: Session) => {
+    const title = window.prompt("Новое название чата", sessionTitle(session.title))?.trim()
+    if (!title || title === session.title) return
+    await serverSDK().api.session.rename({ sessionID: session.id, directory: session.directory, title })
+  }
+  const removeChat = async (session: Session) => {
+    if (!window.confirm(`Удалить чат «${sessionTitle(session.title)}»?`)) return
+    await serverSDK().api.session.remove({ sessionID: session.id, directory: session.directory })
+  }
+  const pinChat = async (session: Session) => {
+    await serverSDK().client.session.update({
+      sessionID: session.id,
+      directory: session.directory,
+      metadata: { primekit_is_pinned: !isPinned(session) },
+    })
+  }
 
   return (
     <div
@@ -133,14 +149,7 @@ export default function NewLayout(props: ParentProps) {
                           class="flex h-full min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
                           onClick={() => setState("expanded", project.worktree, !expanded())}
                         >
-                          <span
-                            class="flex size-7 shrink-0 items-center justify-center rounded-full border border-white/20 text-[11px] font-semibold text-white"
-                            style={{ background: projectColor(project) }}
-                          >
-                            <Show when={projectIcon(project)} fallback={displayName(project).slice(0, 1).toUpperCase()}>
-                              {(url) => <img src={url()} alt="" class="size-5 object-contain" />}
-                            </Show>
-                          </span>
+                          <ProjectIcon project={project} class="!size-7 !rounded-full" />
                           <span class="min-w-0 flex-1 truncate text-[14px] font-medium">{displayName(project)}</span>
                         </button>
                         <button
@@ -163,17 +172,22 @@ export default function NewLayout(props: ParentProps) {
                           </button>
                           <For each={sessions().slice(0, sessionLimit())}>
                             {(session) => (
-                              <button
-                                type="button"
+                              <div
                                 classList={{
-                                  "h-8 min-w-0 truncate rounded-lg px-2 text-left text-[13px] transition-colors motion-reduce:transition-none": true,
+                                  "group/chat flex h-8 min-w-0 items-center rounded-lg px-2 text-[13px] transition-colors motion-reduce:transition-none": true,
                                   "bg-[rgba(255,255,255,0.12)] text-white": location.pathname.endsWith(`/session/${session.id}`),
                                   "text-white/65 hover:bg-[rgba(255,255,255,0.08)] hover:text-white": !location.pathname.endsWith(`/session/${session.id}`),
                                 }}
-                                onClick={() => navigate(`/${slug}/session/${session.id}`)}
                               >
-                                {sessionTitle(session.title)}
-                              </button>
+                                <button type="button" class="min-w-0 flex-1 truncate text-left" onClick={() => navigate(`/${slug}/session/${session.id}`)}>
+                                  {sessionTitle(session.title)}
+                                </button>
+                                <span class="shrink-0 text-[11px] text-white/35 group-hover/chat:hidden">{compactAge(session.time.created)}</span>
+                                <div class="hidden shrink-0 items-center group-hover/chat:flex">
+                                  <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white" aria-label="Переименовать" onClick={() => void renameChat(session)}><IconV2 name="edit" size="small" /></button>
+                                  <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300" aria-label="Удалить" onClick={() => void removeChat(session)}><IconV2 name="trash" size="small" /></button>
+                                </div>
+                              </div>
                             )}
                           </For>
                           <Show when={sessions().length > sessionLimit()}>
@@ -211,27 +225,28 @@ export default function NewLayout(props: ParentProps) {
                     <div class="flex min-w-0 flex-col gap-0.5">
                       <For each={sessions().slice(0, state.personalLimit)}>
                         {(session) => (
-                          <button
-                            type="button"
+                          <div
                             classList={{
                               "group/chat flex h-9 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors motion-reduce:transition-none": true,
                               "bg-[rgba(255,255,255,0.13)] text-white": location.pathname.endsWith(`/session/${session.id}`),
                               "text-white/72 hover:bg-[rgba(255,255,255,0.09)] hover:text-white": !location.pathname.endsWith(`/session/${session.id}`),
                             }}
-                            onClick={() => navigate(`/${slug}/session/${session.id}`)}
                           >
                             <Show when={isPinned(session)} fallback={<span class="size-4 shrink-0" />}>
                               <svg viewBox="0 0 20 20" class="size-4 shrink-0 text-white/55" fill="none" aria-hidden="true">
                                 <path d="m7 3 6 6m-4.8-4.8L5.7 6.7l1.6 1.6-3.2 4.4 3.2 3.2 4.4-3.2 1.6 1.6 2.5-2.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" />
                               </svg>
                             </Show>
-                            <span class="min-w-0 flex-1 truncate">{sessionTitle(session.title)}</span>
-                            <svg viewBox="0 0 20 20" class="size-4 shrink-0 text-white/45 opacity-0 group-hover/chat:opacity-100" fill="currentColor" aria-hidden="true">
-                              <circle cx="5" cy="10" r="1.25" />
-                              <circle cx="10" cy="10" r="1.25" />
-                              <circle cx="15" cy="10" r="1.25" />
-                            </svg>
-                          </button>
+                            <button type="button" class="min-w-0 flex-1 truncate text-left" onClick={() => navigate(`/${slug}/session/${session.id}`)}>{sessionTitle(session.title)}</button>
+                            <span class="shrink-0 text-[11px] text-white/35 group-hover/chat:hidden">{compactAge(session.time.created)}</span>
+                            <div class="hidden shrink-0 items-center group-hover/chat:flex">
+                              <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white" aria-label={isPinned(session) ? "Открепить" : "Закрепить"} onClick={() => void pinChat(session)}>
+                                <svg viewBox="0 0 20 20" class="size-3.5" fill="none" aria-hidden="true"><path d="m7 3 6 6-2 1 3 3-1 1-3-3-1 2-6-6 4-4Z" stroke="currentColor" stroke-linejoin="round"/><path d="m7.5 12.5-4 4" stroke="currentColor" stroke-linecap="round"/></svg>
+                              </button>
+                              <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white" aria-label="Переименовать" onClick={() => void renameChat(session)}><IconV2 name="edit" size="small" /></button>
+                              <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300" aria-label="Удалить" onClick={() => void removeChat(session)}><IconV2 name="trash" size="small" /></button>
+                            </div>
+                          </div>
                         )}
                       </For>
                       <Show when={sessions().length > state.personalLimit}>

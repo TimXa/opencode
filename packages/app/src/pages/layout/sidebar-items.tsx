@@ -87,6 +87,23 @@ export type SessionItemProps = {
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
+  primekit?: {
+    rename: (session: Session) => Promise<void>
+    remove: (session: Session) => Promise<void>
+    pin: (session: Session) => Promise<void>
+  }
+}
+
+export const compactAge = (value: number) => {
+  const seconds = Math.max(0, Math.floor((Date.now() - value) / 1_000))
+  if (seconds < 60) return `${Math.max(1, seconds)}с`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}м`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}ч`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}д`
+  return `${Math.floor(days / 30)}мес`
 }
 
 const SessionRow = (props: {
@@ -103,6 +120,7 @@ const SessionRow = (props: {
   sidebarOpened: Accessor<boolean>
   warmPress: () => void
   warmFocus: () => void
+  primekit?: boolean
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
 
@@ -139,6 +157,11 @@ const SessionRow = (props: {
         </div>
       </Show>
       <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>
+      <Show when={props.primekit}>
+        <span class="shrink-0 text-[12px] text-white/38 group-hover/session:hidden">
+          {compactAge(props.session.time.created)}
+        </span>
+      </Show>
     </A>
   )
 }
@@ -212,6 +235,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       sidebarOpened={layout.sidebar.opened}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
+      primekit={Boolean(props.primekit)}
     />
   )
 
@@ -241,7 +265,50 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
             </Show>
           </div>
 
-          <Show when={!props.level}>
+          <Show when={!props.level && props.primekit}>
+            <div class="hidden shrink-0 items-center gap-0.5 group-hover/session:flex group-focus-within/session:flex">
+              <Show when={props.session.id.startsWith("ses_pk_")}>
+                <button
+                  type="button"
+                  class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white"
+                  aria-label={(props.session as Session & { isPinned?: boolean }).isPinned ? "Открепить" : "Закрепить"}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    void props.primekit?.pin(props.session)
+                  }}
+                >
+                  <svg viewBox="0 0 20 20" class="size-3.5" fill="none" aria-hidden="true"><path d="m7 3 6 6-2 1 3 3-1 1-3-3-1 2-6-6 4-4Z" stroke="currentColor" stroke-linejoin="round"/><path d="m7.5 12.5-4 4" stroke="currentColor" stroke-linecap="round"/></svg>
+                </button>
+              </Show>
+              <button
+                type="button"
+                class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white"
+                aria-label="Переименовать"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void props.primekit?.rename(props.session)
+                }}
+              >
+                <IconV2 name="edit" size="small" />
+              </button>
+              <button
+                type="button"
+                class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300"
+                aria-label="Удалить"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void props.primekit?.remove(props.session)
+                }}
+              >
+                <IconV2 name="trash" size="small" />
+              </button>
+            </div>
+          </Show>
+
+          <Show when={!props.level && !props.primekit}>
             <div
               class="shrink-0 overflow-hidden transition-[width,opacity]"
               classList={{
