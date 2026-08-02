@@ -191,6 +191,7 @@ try {
     body: JSON.stringify({ kind: "desktop", runtime_id: runtime.id, folder_grant_id: grant.id }),
   })
   const runTurn = async (targetMarker, sequence) => {
+    const admittedAt = Date.now()
     const turn = await request(`/desktop-agent/chats/${chat.id}/turn`, {
       method: "POST",
       headers: auth,
@@ -207,10 +208,14 @@ try {
       }
       return value.status === "completed" ? value : undefined
     })
+    const wakeLatencyMs = Date.parse(command.delivered_at) - admittedAt
+    if (!Number.isFinite(wakeLatencyMs) || wakeLatencyMs > 10_000) {
+      throw new Error(`Packaged device wakeup took ${wakeLatencyMs}ms; SSE delivery is not working`)
+    }
     if (!existsSync(targetMarker) || readFileSync(targetMarker, "utf8") !== markerContent) {
       throw new Error(`Packaged local agent did not create marker ${sequence}`)
     }
-    return command
+    return { ...command, wake_latency_ms: wakeLatencyMs }
   }
 
   const command = await runTurn(marker, 1)
@@ -242,6 +247,8 @@ try {
     marker,
     restart_marker: restartMarker,
     restart_verified: true,
+    wake_latency_ms: command.wake_latency_ms,
+    restart_wake_latency_ms: restartedCommand.wake_latency_ms,
   }))
   }
 } finally {

@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { primeKitAccount } from "./primekit-account"
+import { publishPrimeKitSidebarEvent, type PrimeKitSidebarEvent } from "./primekit-sidebar-events"
 import pkg from "../../package.json"
 
 type LocalServer = { url: string; username: string; password: string }
@@ -578,7 +579,7 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         continue
       }
       try {
-        const response = await primeKitAccount.open("/servers/sidebar-events", {
+        const response = await primeKitAccount.stream("/servers/sidebar-events", {
           headers: { accept: "text/event-stream" },
           signal: controller.signal,
         })
@@ -599,7 +600,8 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
               .map((line) => line.slice(5).trim())
               .join("\n")
             if (!raw) continue
-            const event = JSON.parse(raw) as { chat_id?: number; server_id?: number; type?: string }
+            const event = JSON.parse(raw) as PrimeKitSidebarEvent
+            publishPrimeKitSidebarEvent(event)
             if (!event.chat_id) continue
             const spaces = event.server_id ? await primeKitAccount.request<Space[]>("/servers/") : []
             const space = spaces.find((item) => item.id === event.server_id)

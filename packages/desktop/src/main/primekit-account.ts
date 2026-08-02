@@ -176,6 +176,21 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
     return response
   }
 
+  const stream = async (path: string, init: RequestInit = {}) => {
+    const current = load()
+    if (!current?.access_token) throw new Error("Войдите в аккаунт PrimeKit")
+    const headers = new Headers(init.headers)
+    headers.set("authorization", `Bearer ${current.access_token}`)
+    const send = () => fetch(`${baseURL}${path}`, { ...init, headers, signal: init.signal })
+    let response = await send()
+    if (response.status === 401) {
+      await refresh()
+      headers.set("authorization", `Bearer ${tokens!.access_token}`)
+      response = await send()
+    }
+    return response
+  }
+
   const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     const headers = new Headers(init.headers)
     if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
@@ -199,6 +214,7 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
   return {
     baseURL,
     open,
+    stream,
     request,
     signedIn: () => Boolean(load()?.access_token),
     credential: async () => {

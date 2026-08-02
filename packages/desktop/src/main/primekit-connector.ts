@@ -17,6 +17,7 @@ import {
   setPrimeKitComputerPermissionState,
 } from "./primekit-access"
 import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-computer-mcp"
+import { subscribePrimeKitSidebarEvents } from "./primekit-sidebar-events"
 import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
 import { mirrorLocalAgentEvents, type MirroredPart } from "./primekit-command-events"
@@ -328,6 +329,33 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
     }
     logger.log("PrimeKit connector online", { runtimeID: runtime.id, platform: device.platform, workspace: root })
 
+    let wakeGeneration = 0
+    let observedWakeGeneration = 0
+    let wakeResolver: (() => void) | undefined
+    const wake = () => {
+      wakeGeneration += 1
+      wakeResolver?.()
+    }
+    const unsubscribeWake = subscribePrimeKitSidebarEvents((event) => {
+      if (event.runtime_id === runtime.id && event.type?.startsWith("desktop-command-")) wake()
+    })
+    const waitForWake = async () => {
+      if (wakeGeneration !== observedWakeGeneration) {
+        observedWakeGeneration = wakeGeneration
+        return
+      }
+      const waitingFor = wakeGeneration
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          wakeResolver = resolve
+          if (wakeGeneration !== waitingFor) resolve()
+        }),
+        abortableDelay(30_000, connection.signal),
+      ]).catch(() => undefined)
+      wakeResolver = undefined
+      observedWakeGeneration = wakeGeneration
+    }
+
     let computerCheck: Promise<void> | undefined
     const checkComputer = (prompt: boolean) => {
       if (computerCheck) return
@@ -388,10 +416,12 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
             message: error instanceof Error ? error.message : String(error),
           })
         }
-        await delay(3_000)
+        await waitForWake()
       }
       if (connection.signal.aborted) throw connection.signal.reason
     } finally {
+      unsubscribeWake()
+      wake()
       heartbeatStopped = true
       await heartbeatTask
     }
