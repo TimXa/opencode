@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { executionDeviceLabel, visibleExecutionRuntimes } from "./primekit-execution-target"
+import { executionDeviceLabel, visibleExecutionRuntimes } from "./primekit-execution-target-model"
 
 const runtime = (id: number, status: "online" | "offline", capabilities = ["agent_run"]) => ({
   id,

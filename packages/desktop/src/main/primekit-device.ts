@@ -118,8 +118,7 @@ export function getPrimeKitDeviceIdentity() {
 
 export async function defaultPrimeKitWorkspace() {
   const configured = process.env.PRIMEKIT_WORKSPACE_PATH
-  const legacyMac = join(homedir(), "Desktop", "Проекты", "PrimeKit")
-  const candidate = configured || (process.platform === "darwin" ? legacyMac : join(homedir(), "PrimeKit"))
+  const candidate = configured || join(homedir(), "PrimeKit")
   try {
     await access(candidate)
   } catch {

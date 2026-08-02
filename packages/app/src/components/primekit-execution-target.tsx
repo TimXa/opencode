@@ -2,31 +2,17 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { createMemo, createResource, For, Show } from "solid-js"
-import { showToast } from "@/utils/toast"
+import {
+  executionDeviceLabel,
+  runtimeReady,
+  visibleExecutionRuntimes,
+} from "./primekit-execution-target-model"
+
+export { executionDeviceLabel, visibleExecutionRuntimes } from "./primekit-execution-target-model"
 
 export type PrimeKitExecutionTargetValue =
   | { kind: "cloud" }
-  | { kind: "desktop"; runtime_id: number; folder_grant_id: number }
-
-const runtimeReady = (runtime: { status: string; capabilities: string[] } | undefined) =>
-  runtime?.status === "online" && runtime.capabilities.includes("agent_run")
-
-export const executionDeviceLabel = (name: string) => name.replace(/\.local$/i, "")
-
-export const visibleExecutionRuntimes = <T extends { id: number; status: string; capabilities: string[] }>(
-  runtimes: T[],
-  selectedRuntimeID?: number,
-) => runtimes.filter((runtime) => runtimeReady(runtime) || runtime.id === selectedRuntimeID)
-
-const grantReady = (
-  grant: { active: boolean; capabilities: string[]; runtime_id: number } | undefined,
-  runtimeID?: number,
-) =>
-  Boolean(
-    grant?.active &&
-      grant.runtime_id === runtimeID &&
-      ["read", "write", "patch", "shell"].every((capability) => grant.capabilities.includes(capability)),
-  )
+  | { kind: "desktop"; runtime_id: number; folder_grant_id?: number }
 
 export function primeKitChatID(sessionID: string) {
   const personal = /^ses_pk_(\d+)$/.exec(sessionID)
@@ -42,7 +28,7 @@ type Props =
 export function PrimeKitExecutionTarget(props: Props) {
   const controlled = () => "value" in props
   const id = createMemo(() => ("sessionID" in props ? primeKitChatID(props.sessionID) : undefined))
-  const [options, { refetch: refetchOptions }] = createResource(
+  const [options] = createResource(
     () => (window.api?.primekit && (id() || controlled()) ? true : undefined),
     () => window.api!.primekit!.executionOptions(),
   )
@@ -55,12 +41,10 @@ export function PrimeKitExecutionTarget(props: Props) {
     const value = props.value
     if (value.kind === "cloud") return value
     const runtime = options()?.runtimes.find((item) => item.id === value.runtime_id)
-    const grant = options()?.grants.find((item) => item.id === value.folder_grant_id)
     return {
       ...value,
       runtime_name: runtime?.device_name,
-      folder_name: grant?.display_name,
-      available: runtimeReady(runtime) && grantReady(grant, runtime?.id),
+      available: runtimeReady(runtime),
     }
   })
   const selectedDesktop = createMemo(() => {
@@ -85,9 +69,9 @@ export function PrimeKitExecutionTarget(props: Props) {
     await window.api!.primekit!.setExecutionTarget(value, { kind: "cloud" })
     await refetch()
   }
-  const selectDesktop = async (runtimeID: number, grantID: number) => {
+  const selectDesktop = async (runtimeID: number) => {
     if ("onChange" in props) {
-      props.onChange({ kind: "desktop", runtime_id: runtimeID, folder_grant_id: grantID })
+      props.onChange({ kind: "desktop", runtime_id: runtimeID })
       return
     }
     const value = id()
@@ -95,23 +79,8 @@ export function PrimeKitExecutionTarget(props: Props) {
     await window.api!.primekit!.setExecutionTarget(value, {
       kind: "desktop",
       runtime_id: runtimeID,
-      folder_grant_id: grantID,
     })
     await refetch()
-  }
-  const addFolder = async () => {
-    try {
-      const path = await window.api!.openDirectoryPicker({ title: "Разрешить Киту доступ к папке" })
-      if (!path || Array.isArray(path)) return
-      await window.api!.primekit!.authorizeExecutionFolder(path)
-      await refetchOptions()
-    } catch (error) {
-      showToast({
-        title: "Не удалось подключить папку",
-        description: error instanceof Error ? error.message : String(error),
-        variant: "error",
-      })
-    }
   }
 
   return (
@@ -147,49 +116,15 @@ export function PrimeKitExecutionTarget(props: Props) {
             <MenuV2.Group>
               <For each={visibleRuntimes()}>
                 {(runtime) => {
-                  const grants = () =>
-                    options()?.grants.filter((grant) => grant.active && grant.runtime_id === runtime.id) ?? []
+                  const available = () => runtimeReady(runtime)
                   return (
-                    <>
-                      <Show when={grants().length === 0}>
-                        <MenuV2.Item disabled>
-                          <IconV2 name="monitor" />
-                          <span class="min-w-0 flex-1">
-                            <span class="block truncate">{executionDeviceLabel(runtime.device_name)}</span>
-                            <span class="block truncate text-[11px] text-v2-text-text-faint">
-                              Подключите папку
-                            </span>
-                          </span>
-                        </MenuV2.Item>
+                    <MenuV2.Item disabled={!available()} onSelect={() => void selectDesktop(runtime.id)}>
+                      <IconV2 name="monitor" />
+                      <span class="min-w-0 flex-1 truncate">{executionDeviceLabel(runtime.device_name)}</span>
+                      <Show when={selectedDesktop()?.runtime_id === runtime.id}>
+                        <Icon name="check" size="small" />
                       </Show>
-                      <For each={grants()}>
-                        {(grant) => {
-                          const available = () => runtimeReady(runtime) && grantReady(grant, runtime.id)
-                          return (
-                            <MenuV2.Item
-                              disabled={!available()}
-                              onSelect={() => void selectDesktop(runtime.id, grant.id)}
-                            >
-                              <IconV2 name="monitor" />
-                              <span class="min-w-0 flex-1">
-                                <span class="block truncate">{executionDeviceLabel(runtime.device_name)}</span>
-                                <span class="block truncate text-[11px] text-v2-text-text-faint">
-                                  {grant.display_name}{available() ? "" : " · Не в сети"}
-                                </span>
-                              </span>
-                              <Show
-                                when={
-                                  selectedDesktop()?.runtime_id === runtime.id &&
-                                  selectedDesktop()?.folder_grant_id === grant.id
-                                }
-                              >
-                                <Icon name="check" size="small" />
-                              </Show>
-                            </MenuV2.Item>
-                          )
-                        }}
-                      </For>
-                    </>
+                    </MenuV2.Item>
                   )
                 }}
               </For>
@@ -199,11 +134,6 @@ export function PrimeKitExecutionTarget(props: Props) {
                 </div>
               </Show>
             </MenuV2.Group>
-            <MenuV2.Separator />
-            <MenuV2.Item onSelect={() => void addFolder()}>
-              <IconV2 name="folder-add" />
-              Подключить папку на этом компьютере…
-            </MenuV2.Item>
           </MenuV2.Content>
         </MenuV2.Portal>
       </MenuV2>

@@ -22,6 +22,7 @@ import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
 import { mirrorLocalAgentEvents, type MirroredPart } from "./primekit-command-events"
 import { disposeProviderCacheRequest, modelTokenRequest } from "./primekit-connector-protocol"
+import { commandWorkspace } from "./primekit-workspace"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -44,6 +45,7 @@ type Command = {
   chat_id?: number | null
   action: string
   folder_grant_id?: number | null
+  cwd_relative?: string | null
   args?: Record<string, unknown>
   expires_at?: string | null
   local_session_id?: string | null
@@ -460,14 +462,27 @@ async function execute(
   connectionSignal: AbortSignal,
   logger: Logger,
 ) {
-  const root = command.folder_grant_id ? grantRoots.get(command.folder_grant_id) : fallbackRoot
-  if (!root) {
+  const trustedRoot = command.folder_grant_id ? grantRoots.get(command.folder_grant_id) : fallbackRoot
+  if (!trustedRoot) {
     await finish(
       device,
       command,
       command.status === "cancel_requested" ? "cancelled" : "error",
       undefined,
       "Folder grant is not trusted on this device",
+    )
+    return
+  }
+  let root: string
+  try {
+    root = await commandWorkspace(trustedRoot, command.cwd_relative)
+  } catch (error) {
+    await finish(
+      device,
+      command,
+      "error",
+      undefined,
+      error instanceof Error ? error.message : String(error),
     )
     return
   }
