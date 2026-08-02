@@ -35,7 +35,8 @@
 - Backend `8f5b88c`: 33 unit tests — pass.
 - Backend `8f5b88c`: двухустройственный system E2E — pass (`runtime_id=1`, `second_runtime_id=2`).
 - Desktop `a556be2`: DMG install → Computer Use → cloud turn → local write → restart → cloud sync — pass.
-- Последний Mac DMG E2E: wake 26 ms, после restart 1209 ms, session сохранена.
+- Последний установленный Mac E2E: file → restart → file → Terminal — pass; wake 24 ms,
+  после restart 1160 ms, одна local session и три синхронизированных cloud result.
 - Desktop config: 9 tests, typecheck и actionlint 1.7.12 — pass.
 - Desktop `6e09173`: Windows QA run `30732881834` на настоящем `windows-2025` — pass.
 - Windows QA: x64 NSIS собран; PE/native runtime, packaged Computer Use и browser → cloud → local agent → cloud E2E — pass.
@@ -47,6 +48,8 @@
   (`ожидалось 2 provider calls, получено 1`); после pin-and-drain исправления — 56 pass, 1 skip.
 - HTTP regression с PrimeKit ID `msg_pk_cmd_9 → 10 → 11`: три последовательных tool round-trip,
   6 provider calls, 3 user + 6 assistant messages — pass.
+- Ротация command-bound model token теперь сбрасывает только Provider-кеш выбранного workspace;
+  третий ход больше не использует отозванный Bearer предыдущей команды. Unit regression и packaged Mac E2E — pass.
 - Последний установленный Windows Terminal gate ещё не подтверждён: runs `30734033150`–`30736253537`
   зависали на третьем ходе из-за найденной потери queued prompt; требуется повтор после новой сборки.
 

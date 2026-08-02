@@ -7,3 +7,10 @@ export function modelTokenRequest(commandID: number, claimToken: string) {
     } satisfies RequestInit,
   }
 }
+
+export function disposeProviderCacheRequest(directory: string) {
+  return {
+    path: `/instance/dispose?directory=${encodeURIComponent(directory)}`,
+    init: { method: "POST" } satisfies RequestInit,
+  }
+}

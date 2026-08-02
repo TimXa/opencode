@@ -21,7 +21,7 @@ import { subscribePrimeKitSidebarEvents } from "./primekit-sidebar-events"
 import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
 import { mirrorLocalAgentEvents, type MirroredPart } from "./primekit-command-events"
-import { modelTokenRequest } from "./primekit-connector-protocol"
+import { disposeProviderCacheRequest, modelTokenRequest } from "./primekit-connector-protocol"
 import pkg from "../../package.json"
 
 type Logger = { log: (message: string, meta?: unknown) => void; error: (message: string, meta?: unknown) => void }
@@ -244,6 +244,7 @@ function activeModel() {
 async function configurePrimeKitProvider(
   server: LocalServer,
   modelToken: string,
+  directory: string,
 ) {
   const api = `${primeKitAccount.baseURL}/v1`
   await localRequest(server, "/auth/kit", {
@@ -267,6 +268,8 @@ async function configurePrimeKitProvider(
       },
     }),
   })
+  const dispose = disposeProviderCacheRequest(directory)
+  await localRequest(server, dispose.path, dispose.init)
 }
 
 export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitComputerMcp, logger: Logger) {
@@ -607,7 +610,7 @@ async function execute(
         ].join("\n")
       : ""
     const effectivePrompt = [attachmentContext, prompt].filter(Boolean).join("\n\n")
-    await configurePrimeKitProvider(server, modelCredential.access_token)
+    await configurePrimeKitProvider(server, modelCredential.access_token, root)
     const model = activeModel()
     logger.log("PrimeKit local agent selected", model)
     const localMessageID = `msg_pk_cmd_${command.id}`
