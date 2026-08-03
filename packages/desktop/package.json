@@ -14,7 +14,6 @@
     "predev": "bun ./scripts/predev.ts",
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",
-    "sync:primekit-web": "bun ./scripts/sync-primekit-web.ts",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "smoke:computer": "node --experimental-strip-types scripts/primekit-computer-smoke.mjs",

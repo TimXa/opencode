@@ -3,13 +3,12 @@ import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
 import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
 import primekitThemeJson from "../../../ui/src/theme/themes/primekit.json"
 import { randomUUID } from "node:crypto"
-import { existsSync, rmSync } from "node:fs"
-import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, shell } from "electron"
+import { rmSync } from "node:fs"
+import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
 import { exportDebugLogs, write as writeLog } from "./logging"
-import { primeKitAccount } from "./primekit-account"
 import { getStore, removeStoreFile } from "./store"
 import { PINCH_ZOOM_ENABLED_KEY, WINDOW_IDS_KEY } from "./store-keys"
 import { createUnresponsiveSampler } from "./unresponsive"
@@ -20,8 +19,6 @@ const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
-const primekitRendererProtocol = "primekit-ui"
-const primekitRendererRoot = join(root, "../../resources/primekit-web")
 const clipboardWritePermission = "clipboard-sanitized-write"
 const notificationPermission = "notifications"
 const rendererPermissions = new Set([clipboardWritePermission, notificationPermission])
@@ -36,15 +33,6 @@ const jsCallStacksDocumentPolicy = "include-js-call-stacks-in-crash-reports"
 protocol.registerSchemesAsPrivileged([
   {
     scheme: rendererProtocol,
-    privileges: {
-      secure: true,
-      standard: true,
-      supportFetchAPI: true,
-      stream: true,
-    },
-  },
-  {
-    scheme: primekitRendererProtocol,
     privileges: {
       secure: true,
       standard: true,
@@ -183,7 +171,6 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   const mode = tone()
-  const primekitRenderer = primeKitAccount.signedIn() && existsSync(join(primekitRendererRoot, "index.html"))
   const win = new BrowserWindow({
     x: state.x,
     y: state.y,
@@ -208,7 +195,7 @@ export function createMainWindow(id: string = randomUUID()) {
         }
       : {}),
     webPreferences: {
-      preload: primekitRenderer ? undefined : join(root, "../preload/index.js"),
+      preload: join(root, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -216,7 +203,6 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   allowRendererPermissions(win)
-  guardPrimeKitNavigation(win, primekitRenderer)
   wireWindowRecovery(win, id)
 
   win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -234,7 +220,7 @@ export function createMainWindow(id: string = randomUUID()) {
   state.manage(win)
   registerWindow(win, id)
   wireFullscreen(win)
-  void loadWindow(win, "index.html", primekitRenderer)
+  void loadWindow(win, "index.html")
   wireZoom(win)
 
   win.once("ready-to-show", () => {
@@ -305,44 +291,9 @@ export function registerRendererProtocol() {
         return new Response("Not found", { status: 404 })
       }
     })
-
-  if (!protocol.isProtocolHandled(primekitRendererProtocol)) {
-    protocol.handle(primekitRendererProtocol, (request) => servePrimeKitRenderer(request))
-  }
 }
 
-async function servePrimeKitRenderer(request: Request) {
-  const url = new URL(request.url)
-  if (url.host !== rendererHost) return new Response("Not found", { status: 404 })
-
-  const requested = resolve(primekitRendererRoot, `.${decodeURIComponent(url.pathname)}`)
-  const rel = relative(primekitRendererRoot, requested)
-  if (rel.startsWith("..") || isAbsolute(rel)) return new Response("Not found", { status: 404 })
-  const file =
-    existsSync(requested) && !url.pathname.endsWith("/") ? requested : join(primekitRendererRoot, "index.html")
-
-  try {
-    return await net.fetch(pathToFileURL(file).toString())
-  } catch (error) {
-    writeLog("protocol", "PrimeKit renderer fetch failed", { url: request.url, file, error }, "error")
-    return new Response("Not found", { status: 404 })
-  }
-}
-
-async function loadWindow(win: BrowserWindow, html: string, primekitRenderer: boolean) {
-  if (primekitRenderer) {
-    try {
-      const handoff = await primeKitAccount.request<{ ticket: string }>("/auth/desktop-web-ticket", { method: "POST" })
-      const url = new URL(`${primekitRendererProtocol}://${rendererHost}/auth/desktop`)
-      url.hash = new URLSearchParams({ ticket: handoff.ticket }).toString()
-      await win.loadURL(url.toString())
-    } catch (error) {
-      writeLog("primekit", "bundled renderer handoff failed", { error }, "error")
-      await win.loadURL(`${primekitRendererProtocol}://${rendererHost}/ai?desktop=1`)
-    }
-    return
-  }
-
+async function loadWindow(win: BrowserWindow, html: string) {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
     const url = new URL(html, devUrl)
@@ -351,21 +302,6 @@ async function loadWindow(win: BrowserWindow, html: string, primekitRenderer: bo
   }
 
   void win.loadURL(`${rendererProtocol}://${rendererHost}/${html}`)
-}
-
-function guardPrimeKitNavigation(win: BrowserWindow, primekitRenderer: boolean) {
-  if (!primekitRenderer) return
-  const localOrigin = `${primekitRendererProtocol}://${rendererHost}`
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(localOrigin)) return { action: "allow" }
-    void shell.openExternal(url)
-    return { action: "deny" }
-  })
-  win.webContents.on("will-navigate", (event, url) => {
-    if (url.startsWith(localOrigin)) return
-    event.preventDefault()
-    void shell.openExternal(url)
-  })
 }
 
 function wireWindowRecovery(win: BrowserWindow, name: string) {
@@ -502,7 +438,6 @@ function allowRendererPermissions(win: BrowserWindow) {
 }
 
 function isTrustedRendererUrl(value?: string) {
-  if (value?.startsWith(`${primekitRendererProtocol}://${rendererHost}/`)) return true
   return isRendererUrl(value)
 }
 
