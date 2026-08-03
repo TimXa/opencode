@@ -1,6 +1,7 @@
-import { createWriteStream } from "node:fs"
-import { mkdir, rename, unlink } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { createWriteStream, openAsBlob } from "node:fs"
+import { mkdir, readdir, realpath, rename, stat, unlink } from "node:fs/promises"
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 import { app } from "electron"
 import { createPrimeKitAccount, primeKitAccount } from "./primekit-account"
 import {
@@ -20,7 +21,7 @@ import type { PrimeKitComputerMcp, PrimeKitComputerProbe } from "./primekit-comp
 import { subscribePrimeKitSidebarEvents } from "./primekit-sidebar-events"
 import { getStore } from "./store"
 import { PRIMEKIT_COMMAND_SESSIONS_KEY, PRIMEKIT_COMPUTER_PERMISSION_PROMPTED_KEY } from "./store-keys"
-import { mirrorLocalAgentEvents, type MirroredPart } from "./primekit-command-events"
+import { mirrorLocalAgentEvents, type LocalAgentFile, type MirroredPart } from "./primekit-command-events"
 import { disposeProviderCacheRequest, modelTokenRequest } from "./primekit-connector-protocol"
 import { commandWorkspace } from "./primekit-workspace"
 import pkg from "../../package.json"
@@ -58,6 +59,7 @@ type Command = {
 type CommandSession = { session_id: string; root: string; recorded_at: number }
 type CommandEvent = { event_index: number }
 type CommandAttachment = { file_id: string; filename: string; size?: number; type?: string | null }
+type UploadedFile = { file_id: string; filename: string; size?: number; content_type?: string }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const abortableDelay = (ms: number, signal: AbortSignal) =>
@@ -166,6 +168,103 @@ async function materializeCommandAttachments(command: Command, device: DeviceCli
     paths.push({ filename, path: target })
   }
   return paths
+}
+
+async function localAgentFilePath(file: LocalAgentFile, root: string) {
+  const rawPath = file.source?.path || (file.url?.startsWith("file:") ? fileURLToPath(file.url) : undefined)
+  if (!rawPath) return
+  const requestedPath = isAbsolute(rawPath) ? relative(resolve(root), rawPath) : rawPath
+  return (await existingWorkspacePath(root, requestedPath)).target
+}
+
+function dataURLBlob(url: string, fallbackMime?: string) {
+  const match = /^data:([^;,]*)(;base64)?,([\s\S]*)$/.exec(url)
+  if (!match) throw new Error("Некорректный локальный файл")
+  const bytes = match[2]
+    ? Buffer.from(match[3], "base64")
+    : Buffer.from(decodeURIComponent(match[3]))
+  return new Blob([bytes], { type: match[1] || fallbackMime || "application/octet-stream" })
+}
+
+async function publishLocalAgentFile(file: LocalAgentFile, command: Command, root: string) {
+  if (!command.chat_id) throw new Error("Нельзя прикрепить файл без чата PrimeKit")
+  const path = await localAgentFilePath(file, root)
+  const filename = basename(file.filename || (path ? basename(path) : "file")) || "file"
+  const blob = file.url?.startsWith("data:")
+    ? dataURLBlob(file.url, file.mime)
+    : path
+      ? await openAsBlob(path, { type: file.mime })
+      : undefined
+  if (!blob) throw new Error(`Кит не передал содержимое файла ${filename}`)
+
+  const body = new FormData()
+  body.append("file", blob, filename)
+  const uploadResponse = await primeKitAccount.open("/chat/upload", { method: "POST", body })
+  if (!uploadResponse.ok) throw new Error(`Не удалось загрузить ${filename}: PrimeKit вернул ${uploadResponse.status}`)
+  const uploaded = await uploadResponse.json() as UploadedFile
+  const associated = await primeKitAccount.request<{
+    file_id: string
+    filename: string
+    size?: number
+    source?: string
+    created_at?: string
+  }>(
+    `/chats/${command.chat_id}/files`,
+    {
+      method: "POST",
+      body: JSON.stringify({ file_id: uploaded.file_id, filename: uploaded.filename || filename, source: "ai" }),
+    },
+  )
+  return {
+    file_id: associated.file_id,
+    filename: associated.filename,
+    size: associated.size ?? uploaded.size,
+    mime_type: uploaded.content_type || file.mime,
+    source: associated.source || "ai",
+    created_at: associated.created_at,
+  }
+}
+
+async function existingWorkspacePath(root: string, requestedPath: unknown) {
+  const relativePath = typeof requestedPath === "string" ? requestedPath : ""
+  if (isAbsolute(relativePath) || relativePath.includes("\0")) throw new Error("Некорректный путь workspace")
+  const trustedRoot = await realpath(root)
+  const target = await realpath(resolve(trustedRoot, relativePath))
+  const scoped = relative(trustedRoot, target)
+  if (scoped === ".." || scoped.startsWith(`..${sep}`) || isAbsolute(scoped)) {
+    throw new Error("Путь вышел за пределы workspace чата")
+  }
+  return { trustedRoot, target, scoped }
+}
+
+async function listLocalWorkspace(root: string, requestedPath: unknown) {
+  const { trustedRoot, target, scoped } = await existingWorkspacePath(root, requestedPath)
+  const targetInfo = await stat(target)
+  if (!targetInfo.isDirectory()) throw new Error("Нужна папка, а не файл")
+  const entries = await readdir(target, { withFileTypes: true })
+  const items = []
+  for (const entry of entries) {
+    if (entry.name.startsWith(".") || ["__pycache__", ".venv", "node_modules"].includes(entry.name)) continue
+    if (entry.isSymbolicLink()) continue
+    const path = join(target, entry.name)
+    const info = await stat(path).catch(() => undefined)
+    if (!info || (!info.isDirectory() && !info.isFile())) continue
+    items.push({
+      name: entry.name,
+      path: relative(trustedRoot, path).split(sep).join("/"),
+      type: info.isDirectory() ? "dir" : "file",
+      size: info.isFile() ? info.size : 0,
+      modified_at: info.mtime.toISOString(),
+      mime_type: null,
+    })
+  }
+  items.sort((left, right) => left.type === right.type
+    ? left.name.localeCompare(right.name, "ru")
+    : left.type === "dir" ? -1 : 1)
+  const parent = scoped
+    ? relative(trustedRoot, resolve(target, "..")).split(sep).join("/")
+    : null
+  return { path: scoped.split(sep).join("/"), parent, items }
 }
 
 function commandSessions() {
@@ -402,6 +501,26 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
       }
     }
     const heartbeatTask = heartbeat()
+    const workspaceActions = "workspace_list,workspace_prepare"
+    const workspaceCommands = async () => {
+      while (!controller.signal.aborted && !connection.signal.aborted) {
+        try {
+          const commands = await deviceClient.request<Command[]>(
+            `/desktop-agent/runtimes/${runtime.id}/commands?limit=5&actions=${workspaceActions}`,
+          )
+          for (const command of commands) {
+            await execute(command, grantRoots, root, server, deviceClient, connection.signal, logger)
+          }
+        } catch (error) {
+          if (error instanceof DeviceRequestError && error.status === 401) return
+          logger.error("PrimeKit workspace command failed", {
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+        await abortableDelay(500, connection.signal).catch(() => undefined)
+      }
+    }
+    const workspaceTask = workspaceCommands()
     try {
       while (!controller.signal.aborted && !connection.signal.aborted) {
         try {
@@ -411,7 +530,9 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
             continue
           }
           grantRoots = await syncPrimeKitFolderGrants(account, runtime.id)
-          const commands = await deviceClient.request<Command[]>(`/desktop-agent/runtimes/${runtime.id}/commands?limit=1`)
+          const commands = await deviceClient.request<Command[]>(
+            `/desktop-agent/runtimes/${runtime.id}/commands?limit=1&actions=agent_run,scan_workspace,refresh_permissions,reveal_workspace,capture_screen_preview,capture_screen`,
+          )
           for (const command of commands) {
             await execute(command, grantRoots, root, server, deviceClient, connection.signal, logger)
           }
@@ -429,6 +550,7 @@ export function startPrimeKitConnector(server: LocalServer, computer: PrimeKitCo
       wake()
       heartbeatStopped = true
       await heartbeatTask
+      await workspaceTask
     }
   }
 
@@ -505,6 +627,18 @@ async function execute(
   }
   if (command.action === "refresh_permissions") {
     await finish(device, command, "completed", { state: "ready", workspace: root })
+    return
+  }
+  if (command.action === "workspace_list") {
+    await finish(device, command, "completed", await listLocalWorkspace(root, command.args?.path))
+    return
+  }
+  if (command.action === "workspace_prepare") {
+    const { target } = await existingWorkspacePath(root, command.args?.path)
+    const info = await stat(target)
+    if (!info.isFile()) throw new Error("Нужен файл, а не папка")
+    const file = await publishLocalAgentFile({ filename: basename(target), source: { path: target } }, command, root)
+    await finish(device, command, "completed", file)
     return
   }
   const prompt =
@@ -683,7 +817,13 @@ async function execute(
         `/session/${localSessionID}/message?directory=${encodeURIComponent(root)}&limit=100`,
         { signal: executionSignal },
       )
-      await mirrorLocalAgentEvents(messages, localMessageID, mirroredParts, event)
+      await mirrorLocalAgentEvents(
+        messages,
+        localMessageID,
+        mirroredParts,
+        event,
+        (file) => publishLocalAgentFile(file, command, root),
+      )
       assistantText = textFromMessages(messages, localMessageID)
       if (!status && assistantText) break
       await abortableDelay(1_000, executionSignal)
