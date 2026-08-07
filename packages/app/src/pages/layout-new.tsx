@@ -30,6 +30,7 @@ export default function NewLayout(props: ParentProps) {
     expanded: {} as Record<string, boolean>,
     spaceLimit: {} as Record<string, number>,
     personalLimit: 16,
+    agent: "cowork" as "cloud" | "cowork",
   })
   const [account] = createResource(async () => window.api?.primekit?.state())
 
@@ -43,12 +44,23 @@ export default function NewLayout(props: ParentProps) {
 
   const projects = createMemo(() => layout.projects.list())
   const personalProject = createMemo(
-    () => projects().find((project) => project.id === "primekit-personal" || displayName(project) === "Ваши чаты"),
+    () => projects().find((project) => project.id === "primekit-personal"),
   )
-  const spaceProjects = createMemo(() => projects().filter((project) => project.id !== personalProject()?.id))
-  const startNewChat = (worktree = personalProject()?.worktree) => {
+  const cloudProject = (id?: string) => id === "primekit-personal" || id?.startsWith("primekit-space-") === true
+  const visibleProjects = createMemo(() =>
+    projects().filter((project) =>
+      state.agent === "cloud" ? cloudProject(project.id) && project.id !== "primekit-personal" : !cloudProject(project.id),
+    ),
+  )
+  const startNewChat = (worktree = state.agent === "cloud" ? personalProject()?.worktree : visibleProjects()[0]?.worktree) => {
     if (!worktree) return
     navigate(`/${base64Encode(worktree)}/session`)
+  }
+  const selectAgent = async (agent: "cloud" | "cowork") => {
+    setState("agent", agent)
+    if (agent === "cowork") await window.api?.primekit?.requestComputerAccess()
+    const project = agent === "cloud" ? personalProject() : projects().find((item) => !cloudProject(item.id))
+    if (project) navigate(`/${base64Encode(project.worktree)}/session`)
   }
   const accountName = createMemo(() => {
     const user = account()?.user
@@ -105,13 +117,32 @@ export default function NewLayout(props: ParentProps) {
               <IconV2 name="edit" size="small" />
               Новый чат
             </button>
+            <div class="mt-2 grid grid-cols-2 rounded-lg bg-black/15 p-0.5 [-webkit-app-region:no-drag]">
+              <For each={[{ id: "cloud" as const, label: "Облако" }, { id: "cowork" as const, label: "Cowork" }]}>
+                {(item) => (
+                  <button
+                    type="button"
+                    classList={{
+                      "h-8 rounded-md text-[13px] font-medium transition-colors": true,
+                      "bg-white/12 text-white": state.agent === item.id,
+                      "text-white/50 hover:text-white/80": state.agent !== item.id,
+                    }}
+                    onClick={() => void selectAgent(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                )}
+              </For>
+            </div>
           </div>
 
           <div class="mx-4 h-px shrink-0 bg-[rgba(255,255,255,0.08)]" />
           <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-4 no-scrollbar">
-            <div class="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Пространства</div>
+            <div class="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+              {state.agent === "cloud" ? "Пространства" : "Проекты на Mac"}
+            </div>
             <div class="flex flex-col gap-1">
-              <For each={spaceProjects()}>
+              <For each={visibleProjects()}>
                 {(project) => {
                   const slug = base64Encode(project.worktree)
                   const [projectStore] = serverSync().child(project.worktree)
@@ -205,9 +236,21 @@ export default function NewLayout(props: ParentProps) {
                   )
                 }}
               </For>
+              <Show when={state.agent === "cowork" && visibleProjects().length === 0}>
+                <button
+                  type="button"
+                  class="rounded-lg border border-white/10 px-3 py-3 text-left text-[13px] text-white/65 hover:bg-white/8 hover:text-white"
+                  onClick={async () => {
+                    const directory = await window.api?.openDirectoryPicker({ title: "Выберите папку для Cowork" })
+                    if (typeof directory === "string") startNewChat(directory)
+                  }}
+                >
+                  Открыть папку на Mac
+                </button>
+              </Show>
             </div>
 
-            <Show when={personalProject()} keyed>
+            <Show when={state.agent === "cloud" ? personalProject() : undefined} keyed>
               {(project) => {
                 const slug = base64Encode(project.worktree)
                 const [projectStore] = serverSync().child(project.worktree)

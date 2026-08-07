@@ -6,7 +6,7 @@ type ComputerMcp = {
   timeout: number
 }
 
-export function getPrimeKitProviderConfig(computer?: ComputerMcp) {
+export function getPrimeKitProviderConfig(computer?: ComputerMcp, credential?: string) {
   const api = `${process.env.PRIMEKIT_ACCOUNT_API_URL ?? "https://primekit-job.ru/api"}/v1`
   return JSON.stringify({
     model: "kit/kit",
@@ -19,7 +19,7 @@ export function getPrimeKitProviderConfig(computer?: ComputerMcp) {
         name: "Кит",
         npm: "@ai-sdk/openai-compatible",
         api,
-        options: { baseURL: api },
+        options: { baseURL: api, ...(credential ? { headers: { Authorization: `Bearer ${credential}` } } : {}) },
         whitelist: ["kit"],
         models: { kit: { name: "Кит" } },
       },

@@ -49,12 +49,12 @@ import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
-import { startPrimeKitConnector } from "./primekit-connector"
 import { startPrimeKitBridge } from "./primekit-bridge"
 import { authorizeLocalExecutor } from "./primekit-local-executor-auth"
 import { currentPrimeKitAccessProfile } from "./primekit-access"
 import { startPrimeKitComputerMcp, type PrimeKitComputerMcp } from "./primekit-computer-mcp"
 import { getPrimeKitProviderConfig } from "./primekit-provider"
+import { primeKitAccount } from "./primekit-account"
 
 const APP_NAMES: Record<string, string> = {
   dev: "Кит Dev",
@@ -74,7 +74,6 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
 let server: SidecarListener | null = null
-let primeKitConnector: { stop: () => void } | null = null
 let primeKitBridge: { stop: () => Promise<void> } | null = null
 let primeKitComputer: PrimeKitComputerMcp | null = null
 
@@ -187,8 +186,6 @@ const main = Effect.gen(function* () {
     },
   )
   const stopSidecars = async () => {
-    primeKitConnector?.stop()
-    primeKitConnector = null
     await primeKitComputer?.stop()
     primeKitComputer = null
     await primeKitBridge?.stop()
@@ -364,7 +361,10 @@ const main = Effect.gen(function* () {
     )
     primeKitComputer = computer
     // Runtime-only capability: never persist the ephemeral loopback token in a project config.
-    process.env.OPENCODE_CONFIG_CONTENT = getPrimeKitProviderConfig(computer.config)
+    const credential = primeKitAccount.signedIn()
+      ? yield* Effect.promise(() => primeKitAccount.credential().catch(() => undefined))
+      : undefined
+    process.env.OPENCODE_CONFIG_CONTENT = getPrimeKitProviderConfig(computer.config, credential)
 
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")
@@ -372,7 +372,6 @@ const main = Effect.gen(function* () {
       const bridge = yield* Effect.promise(() => startPrimeKitBridge(sidecar, logger))
       primeKitBridge = bridge
       yield* Deferred.succeed(serverReady, { url: bridge.url, username: bridge.username, password: bridge.password })
-      if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(sidecar, computer, logger)
 
       if (process.platform === "win32") {
         void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
@@ -437,7 +436,6 @@ const main = Effect.gen(function* () {
     const bridge = yield* Effect.promise(() => startPrimeKitBridge(localServer, logger))
     primeKitBridge = bridge
     yield* Deferred.succeed(serverReady, { url: bridge.url, username: bridge.username, password: bridge.password })
-    if (!TEST_ONBOARDING) primeKitConnector = startPrimeKitConnector(localServer, computer, logger)
 
     logger.log("loading task finished")
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)

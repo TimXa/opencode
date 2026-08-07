@@ -46,32 +46,6 @@ export type PrimeKitAccountState = {
   user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
 }
 
-export type PrimeKitRuntime = {
-  id: number
-  device_id: string
-  device_name: string
-  platform: string
-  status: "online" | "offline"
-  capabilities: string[]
-  permission_summary?: string | null
-}
-export type PrimeKitFolderGrant = {
-  id: number
-  runtime_id: number
-  display_name: string
-  root_path_display: string
-  active: boolean
-  capabilities: string[]
-}
-export type PrimeKitExecutionTarget = {
-  kind: "cloud" | "desktop"
-  runtime_id: number | null
-  folder_grant_id: number | null
-  runtime_name?: string
-  folder_name?: string
-  online?: boolean
-  available: boolean
-}
 export type PrimeKitComputerAccess = {
   enabled: boolean
   screen: boolean
@@ -86,14 +60,6 @@ export type ElectronAPI = {
     verifyEmailCode: (email: string, code: string) => Promise<PrimeKitAccountState["user"]>
     logout: () => Promise<void>
     requestComputerAccess: () => Promise<PrimeKitComputerAccess>
-    reconnectDevice: () => Promise<{ status: "reconnecting" }>
-    executionOptions: () => Promise<{ runtimes: PrimeKitRuntime[]; grants: PrimeKitFolderGrant[] }>
-    executionTarget: (chatID: number) => Promise<PrimeKitExecutionTarget>
-    setExecutionTarget: (
-      chatID: number,
-      target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number },
-    ) => Promise<PrimeKitExecutionTarget>
-    authorizeExecutionFolder: (path: string) => Promise<string>
   }
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>

@@ -60,7 +60,6 @@ import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
-import { PrimeKitExecutionTarget } from "@/components/primekit-execution-target"
 import { useSettingsCommand } from "@/components/settings-dialog"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
 import { promptLength } from "@/components/prompt-input/history"
@@ -2232,11 +2231,7 @@ export default function Page() {
                       },
                     })
                     return (
-                      <PromptInputV2Composer
-                        controller={controller}
-                        borderUnderlay
-                        executionTargetControl={<PrimeKitExecutionTarget sessionID={params.id!} />}
-                      />
+                      <PromptInputV2Composer controller={controller} borderUnderlay />
                     )
                   }}
                 </Show>

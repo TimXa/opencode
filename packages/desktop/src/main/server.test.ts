@@ -13,3 +13,8 @@ test("configures the first-party Kit provider without upstream model branding", 
   expect(config.provider.kit.whitelist).toEqual(["kit"])
   expect(config.provider.kit.models.kit.name).toBe("Кит")
 })
+
+test("passes the signed-in Kit credential to the local agent", () => {
+  const config = JSON.parse(getPrimeKitProviderConfig(undefined, "secret"))
+  expect(config.provider.kit.options.headers.Authorization).toBe("Bearer secret")
+})

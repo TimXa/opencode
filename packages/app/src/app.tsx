@@ -279,6 +279,13 @@ declare global {
           signedIn: boolean
           user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
         }>
+        requestEmailCode: (email: string) => Promise<{ status: string; email: string }>
+        verifyEmailCode: (email: string, code: string) => Promise<{
+          id: string
+          email?: string | null
+          display_name?: string | null
+          photo_url?: string | null
+        }>
         logout: () => Promise<void>
         requestComputerAccess: () => Promise<{
           enabled: boolean
@@ -286,48 +293,6 @@ declare global {
           input: boolean
           reason?: string
         }>
-        reconnectDevice: () => Promise<{ status: "reconnecting" }>
-        executionOptions: () => Promise<{
-          runtimes: Array<{
-            id: number
-            device_id: string
-            device_name: string
-            platform: string
-            status: "online" | "offline"
-            capabilities: string[]
-            permission_summary?: string | null
-          }>
-          grants: Array<{
-            id: number
-            runtime_id: number
-            display_name: string
-            root_path_display: string
-            active: boolean
-            capabilities: string[]
-          }>
-        }>
-        executionTarget: (chatID: number) => Promise<{
-          kind: "cloud" | "desktop"
-          runtime_id: number | null
-          folder_grant_id: number | null
-          runtime_name?: string
-          folder_name?: string
-          online?: boolean
-          available: boolean
-        }>
-        setExecutionTarget: (
-          chatID: number,
-          target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number },
-        ) => Promise<{
-          kind: "cloud" | "desktop"
-          runtime_id: number | null
-          folder_grant_id: number | null
-          runtime_name?: string
-          folder_name?: string
-          online?: boolean
-          available: boolean
-        }>
-        authorizeExecutionFolder: (path: string) => Promise<string>
       }
     }
   }

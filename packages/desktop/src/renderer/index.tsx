@@ -352,102 +352,63 @@ function LoadingSplash() {
 function PrimeKitLogin(props: { onSignedIn: () => Promise<unknown> | void }) {
   const [email, setEmail] = createSignal("")
   const [code, setCode] = createSignal("")
-  const [step, setStep] = createSignal<"email" | "code">("email")
+  const [sent, setSent] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal("")
-  const readableError = (cause: unknown) => {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    return message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "") || "Не удалось войти"
-  }
-
   const submit = async (event: SubmitEvent) => {
     event.preventDefault()
     setBusy(true)
     setError("")
     try {
-      if (step() === "email") {
+      if (!sent()) {
         await window.api.primekit.requestEmailCode(email().trim())
-        setStep("code")
+        setSent(true)
       } else {
         await window.api.primekit.verifyEmailCode(email().trim(), code().trim())
-        if ("startViewTransition" in document) {
-          document.startViewTransition(() => props.onSignedIn())
-        } else {
-          await props.onSignedIn()
-        }
+        await props.onSignedIn()
       }
     } catch (cause) {
-      setError(readableError(cause))
+      setError(cause instanceof Error ? cause.message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "") : String(cause))
     } finally {
       setBusy(false)
     }
   }
-
   return (
     <main class="kit-auth-shell">
       <section class="kit-auth-story" aria-label="Возможности Кита">
         <div class="kit-auth-glow" />
         <div class="kit-auth-story-content">
           <Splash class="kit-auth-logo" />
-          <h1>Один Кит.<br />Все ваши устройства.</h1>
-          <p>Продолжайте чаты с сайта на Mac и разрешайте Киту работать с файлами на этом компьютере.</p>
+          <h1>Кит на вашем Mac.</h1>
+          <p>Облачные чаты и локальный Cowork работают под одним аккаунтом Кита.</p>
           <div class="kit-auth-steps">
-            <div class="is-active"><span>1</span><strong>Войдите</strong><small>В тот же аккаунт, что и на сайте</small></div>
-            <div><span>2</span><strong>Выберите папку</strong><small>Кит увидит только разрешённые файлы</small></div>
-            <div><span>3</span><strong>Начните задачу</strong><small>С Mac, iPhone или браузера</small></div>
+            <div class="is-active"><span>1</span><strong>Войдите</strong><small>Подключитесь к серверам Кита</small></div>
+            <div><span>2</span><strong>Выберите режим</strong><small>Облако или Cowork на этом Mac</small></div>
+            <div><span>3</span><strong>Начните задачу</strong><small>Кит готов работать с проектом</small></div>
           </div>
         </div>
       </section>
       <form onSubmit={submit} class="kit-auth-form">
-        <div class="kit-auth-form-inner" classList={{ "is-code": step() === "code" }}>
-        <Splash class="kit-auth-mobile-logo" />
-        <p class="kit-auth-eyebrow">PRIMEKIT ДЛЯ MAC</p>
-        <h2>{step() === "email" ? "Вход в Кит" : "Проверьте почту"}</h2>
-        <p class="kit-auth-copy">
-          {step() === "email" ? "Ваши чаты и память будут доступны на всех устройствах." : `Мы отправили шестизначный код на ${email()}`}
-        </p>
-        <label class="block text-sm text-text-base mb-2" for="primekit-email">Email</label>
-        <input
-          id="primekit-email"
-          type="email"
-          autocomplete="email"
-          required
-          aria-invalid={Boolean(error())}
-          aria-describedby={error() ? "primekit-auth-error" : undefined}
-          disabled={step() === "code" || busy()}
-          value={email()}
-          onInput={(event) => setEmail(event.currentTarget.value)}
-          class="kit-auth-input"
-        />
-        <Show when={step() === "code"}>
-          <label class="block text-sm text-text-base mb-2 mt-4" for="primekit-code">Код из письма</label>
+        <div class="kit-auth-form-inner" classList={{ "is-code": sent() }}>
+          <Splash class="kit-auth-mobile-logo" />
+          <p class="kit-auth-eyebrow">PRIMEKIT ДЛЯ MAC</p>
+          <h2>{sent() ? "Проверьте почту" : "Вход в Кит"}</h2>
+          <p class="kit-auth-copy">{sent() ? `Код отправлен на ${email()}` : "Войдите, чтобы подключить приложение к серверам Кита."}</p>
+          <label class="block text-sm text-text-base mb-2" for="primekit-auth-value">{sent() ? "Код" : "Email"}</label>
           <input
-            id="primekit-code"
-            inputmode="numeric"
-            autocomplete="one-time-code"
+            id="primekit-auth-value"
+            class="kit-auth-input"
+            type={sent() ? "text" : "email"}
+            autocomplete={sent() ? "one-time-code" : "email"}
             required
-            aria-invalid={Boolean(error())}
-            aria-describedby={error() ? "primekit-auth-error" : undefined}
-            autofocus
-            value={code()}
-            onInput={(event) => setCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-            class="kit-auth-input kit-auth-code"
+            value={sent() ? code() : email()}
+            onInput={(event) => sent() ? setCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6)) : setEmail(event.currentTarget.value)}
           />
-        </Show>
-        <Show when={error()}>{(message) => <p id="primekit-auth-error" class="kit-auth-error" role="alert">{message()}</p>}</Show>
-        <button
-          type="submit"
-          disabled={busy()}
-          class="kit-auth-submit"
-        >
-          {busy() ? "Подождите…" : step() === "email" ? "Получить код" : "Войти"}
-        </button>
-        <Show when={step() === "code"}>
-          <button type="button" class="kit-auth-back" onClick={() => setStep("email")}>
-            Изменить email
+          <Show when={error()}>{(message) => <p class="kit-auth-error" role="alert">{message()}</p>}</Show>
+          <button type="submit" disabled={busy()} class="kit-auth-submit">
+            {busy() ? "Подождите…" : sent() ? "Войти" : "Получить код"}
           </button>
-        </Show>
-        <p class="kit-auth-legal">Входя, вы подключаете этот Mac к своему аккаунту PrimeKit.</p>
+          <Show when={sent()}><button type="button" class="kit-auth-back" onClick={() => setSent(false)}>Изменить email</button></Show>
         </div>
       </form>
     </main>
@@ -470,7 +431,6 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
 
   const [windowCount] = createResource(() => window.api.getWindowCount())
   const [account, { refetch: refetchAccount }] = createResource(() => window.api.primekit.state())
-
   // Fetch sidecar credentials (available immediately, before health check)
   const [sidecar] = createResource(() => window.api.awaitInitialization())
 

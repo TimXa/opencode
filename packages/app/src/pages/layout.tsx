@@ -98,6 +98,7 @@ export default function LegacyLayout(props: ParentProps) {
       workspaceBranchName: {} as Record<string, Record<string, string>>,
       workspaceExpanded: {} as Record<string, boolean>,
       gettingStartedDismissed: false,
+      primeKitAgent: "cowork" as "cloud" | "cowork",
     }),
   )
 
@@ -2267,11 +2268,21 @@ export default function LegacyLayout(props: ParentProps) {
     return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
   })
   const personalProject = createMemo(
-    () => projects().find((project) => displayName(project) === "Личные чаты") ?? projects()[0],
+    () => projects().find((project) => project.id === "primekit-personal"),
   )
-  const startNewChat = (project = personalProject()) => {
+  const cloudProject = (id?: string) => id === "primekit-personal" || id?.startsWith("primekit-space-") === true
+  const visibleProjects = createMemo(() =>
+    projects().filter((project) => (store.primeKitAgent === "cloud" ? cloudProject(project.id) : !cloudProject(project.id))),
+  )
+  const startNewChat = (project = store.primeKitAgent === "cloud" ? personalProject() : visibleProjects()[0]) => {
     if (!project) return
     navigateWithSidebarReset(`/${base64Encode(project.worktree)}/session`)
+  }
+  const selectPrimeKitAgent = async (agent: "cloud" | "cowork") => {
+    setStore("primeKitAgent", agent)
+    if (agent === "cowork") await window.api?.primekit?.requestComputerAccess()
+    const project = agent === "cloud" ? personalProject() : projects().find((item) => !cloudProject(item.id))
+    if (project) navigateWithSidebarReset(`/${base64Encode(project.worktree)}/session`)
   }
   const primeKitSidebar = (mobile?: boolean) => (
     <aside class="flex h-full w-full min-w-0 flex-col bg-[#3d372e] text-[#f3f0e8]">
@@ -2302,13 +2313,32 @@ export default function LegacyLayout(props: ParentProps) {
           <IconV2 name="edit" size="small" />
           Новый чат
         </button>
+        <div class="mt-2 grid grid-cols-2 rounded-lg bg-black/15 p-0.5">
+          <For each={[{ id: "cloud" as const, label: "Облако" }, { id: "cowork" as const, label: "Cowork" }]}>
+            {(item) => (
+              <button
+                type="button"
+                classList={{
+                  "h-8 rounded-md text-[13px] font-medium transition-colors": true,
+                  "bg-white/12 text-white": store.primeKitAgent === item.id,
+                  "text-white/50 hover:text-white/80": store.primeKitAgent !== item.id,
+                }}
+                onClick={() => void selectPrimeKitAgent(item.id)}
+              >
+                {item.label}
+              </button>
+            )}
+          </For>
+        </div>
       </div>
 
       <div class="mx-4 h-px shrink-0 bg-white/7" />
       <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-4 no-scrollbar">
-        <div class="px-2 pb-2 text-[12px] font-medium text-white/38">Проекты</div>
+        <div class="px-2 pb-2 text-[12px] font-medium text-white/38">
+          {store.primeKitAgent === "cloud" ? "Облачные чаты" : "Проекты на Mac"}
+        </div>
         <div class="flex flex-col gap-2">
-          <For each={projects()}>
+          <For each={visibleProjects()}>
             {(project) => {
               const slug = base64Encode(project.worktree)
               const [projectStore] = serverSync().child(project.worktree)
@@ -2375,6 +2405,15 @@ export default function LegacyLayout(props: ParentProps) {
               )
             }}
           </For>
+          <Show when={store.primeKitAgent === "cowork" && visibleProjects().length === 0}>
+            <button
+              type="button"
+              class="rounded-lg border border-white/10 px-3 py-3 text-left text-[13px] text-white/65 hover:bg-white/8 hover:text-white"
+              onClick={chooseProject}
+            >
+              Открыть папку на Mac
+            </button>
+          </Show>
         </div>
       </div>
 

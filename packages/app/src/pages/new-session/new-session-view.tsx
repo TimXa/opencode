@@ -3,7 +3,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { Mark } from "@opencode-ai/ui/logo"
-import { Show, createMemo, createSignal, type Accessor, type JSX } from "solid-js"
+import { Show, createMemo, createSignal, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import createPresence from "solid-presence"
@@ -25,7 +25,6 @@ export function NewSessionView(props: {
   input: NewSessionDraftController["input"]
   project: PromptProjectController
   workspace: NewSessionWorkspaceController
-  executionTargetControl?: JSX.Element
 }) {
   return (
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
@@ -41,7 +40,7 @@ export function NewSessionView(props: {
             </h1>
           </div>
           <div class={`w-full ${NEW_SESSION_CONTENT_WIDTH}`}>
-            <PromptInputV2Composer controller={props.input} executionTargetControl={props.executionTargetControl} />
+            <PromptInputV2Composer controller={props.input} />
           </div>
         </div>
         <ProviderTip />

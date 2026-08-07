@@ -31,13 +31,6 @@ type UniversalTurnResponse = {
   task_id: number | null
   user_message_id: number
   status: string
-  executor_kind: "cloud" | "desktop"
-  desktop_command_id?: number | null
-}
-type ExecutionTarget = {
-  kind: "cloud" | "desktop"
-  runtime_id: number | null
-  folder_grant_id: number | null
 }
 type ChatLocation = { kind: "general"; chatID: number } | { kind: "space"; spaceID: number; chatID: number }
 type ChatMessage = {
@@ -438,79 +431,8 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     }
   }
 
-  const watchDesktopCommand = async (chat: Chat, location: ChatLocation, commandID: number, parentID: string) => {
-    const sid = sessionID(location)
-    const mid = `msg_pkcommand_${commandID}`
-    const startedAt = Date.now()
-    let after = -1
-    let started = false
-    const live: ChatMessage = {
-      id: -commandID,
-      role: "assistant",
-      content: "",
-      created_at: new Date(startedAt).toISOString(),
-      steps_json: [],
-      attached_files_json: [],
-    }
-    const publishLive = () => {
-      if (!started) {
-        started = true
-        emit("message.updated", {
-          sessionID: sid,
-          info: {
-            id: mid, sessionID: sid, role: "assistant", time: { created: startedAt }, parentID,
-            modelID: "kit", providerID: "kit", mode: "build", agent: "build",
-            path: { cwd: directory, root: directory }, cost: 0,
-            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          },
-        })
-      }
-      for (const part of richParts(live, sid, mid, startedAt)) {
-        emit("message.part.updated", { sessionID: sid, part, time: Date.now() })
-      }
-    }
-    try {
-      for (let attempt = 0; attempt < 3_600; attempt++) {
-        const [command, events] = await Promise.all([
-          primeKitAccount.request<{ status: string; error_text?: string | null }>(`/desktop-agent/commands/${commandID}`),
-          primeKitAccount.request<Array<{ event_index: number; type: string; payload?: Record<string, unknown> }>>(
-            `/desktop-agent/commands/${commandID}/events?after=${after}&limit=500`,
-          ),
-        ])
-        for (const event of events) {
-          after = Math.max(after, event.event_index)
-          const normalized = { type: event.type, ...(event.payload ?? {}) } as PrimeKitStreamEvent
-          applyStreamEvent(live, normalized)
-          if (!["session", "progress", "approval_required", "approval_decision"].includes(event.type)) publishLive()
-        }
-        if (["completed", "error", "rejected", "cancelled"].includes(command.status)) {
-          const fresh = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
-          if (started) emit("message.removed", { sessionID: sid, messageID: mid })
-          await publishChat(fresh, false, location.kind === "space"
-            ? (await primeKitAccount.request<Space[]>("/servers/")).find((item) => item.id === location.spaceID)
-            : undefined)
-          if (command.status === "error") {
-            logger.error("PrimeKit desktop command failed", { chatID: chat.id, commandID, message: command.error_text })
-          }
-          return
-        }
-        await delay(1_000)
-      }
-      logger.error("PrimeKit desktop command timed out", { chatID: chat.id, commandID })
-    } catch (cause) {
-      logger.error("PrimeKit desktop command watch failed", {
-        chatID: chat.id,
-        commandID,
-        message: cause instanceof Error ? cause.message : String(cause),
-      })
-    } finally {
-      statuses.delete(sid)
-      emit("session.status", { sessionID: sid, status: { type: "idle" } })
-      emit("session.idle", { sessionID: sid })
-    }
-  }
-
   const cloudSessions = async () => {
+    if (!primeKitAccount.signedIn()) return { chats: [], spaces: [], grouped: [] }
     const [chats, spaces] = await Promise.all([
       primeKitAccount.request<Chat[]>("/chats/"),
       primeKitAccount.request<Space[]>("/servers/"),
@@ -559,6 +481,13 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
       response.write(Buffer.from(next.value))
     }
     response.end()
+  }
+
+  const localJSON = async <T>(url: URL | string) => {
+    const target = typeof url === "string" ? url : `${url.pathname}${url.search}`
+    const response = await fetch(`${sidecar.url}${target}`, { headers: { authorization: basic(sidecar) } })
+    if (!response.ok) throw new Error(`Local OpenCode request failed (${response.status})`)
+    return response.json() as Promise<T>
   }
 
   const http = createServer(async (request, response) => {
@@ -614,10 +543,13 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         return json(response, 200, { providers: [kitProvider], default: { kit: "kit" } })
       }
       if (url.pathname === "/api/session" && request.method === "GET") {
-        const { chats, grouped } = await cloudSessions()
+        const [local, cloud] = await Promise.all([
+          localJSON<{ data: unknown[]; cursor: unknown }>(url),
+          cloudSessions(),
+        ])
         const items = [
-          ...chats.map((chat) => session(chat)),
-          ...grouped.flatMap(({ space, chats: entries }) => entries.map((chat) => session(chat, space))),
+          ...cloud.chats.map((chat) => session(chat)),
+          ...cloud.grouped.flatMap(({ space, chats: entries }) => entries.map((chat) => session(chat, space))),
         ].map((item) => ({
           id: item.id,
           projectID: item.projectID,
@@ -630,11 +562,14 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
           time: item.time,
           isPinned: item.isPinned,
         }))
-        return json(response, 200, { data: items, cursor: {} })
+        return json(response, 200, { ...local, data: [...local.data, ...items] })
       }
       if (url.pathname === "/api/health") return json(response, 404, { error: "PrimeKit uses the stable desktop protocol" })
       if (url.pathname === "/project" && request.method === "GET") {
-        const spaces = await primeKitAccount.request<Space[]>("/servers/")
+        const [local, spaces] = await Promise.all([
+          localJSON<unknown[]>(url),
+          primeKitAccount.signedIn() ? primeKitAccount.request<Space[]>("/servers/") : Promise.resolve([]),
+        ])
         await Promise.all([mkdir(personalDirectory, { recursive: true }), ...spaces.map((space) => mkdir(spaceDirectory(space), { recursive: true }))])
         const projects = [
           {
@@ -652,12 +587,13 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
             time: { created: millis(space.created_at) },
           })),
         ]
-        return json(response, 200, projects)
+        return json(response, 200, [...local, ...projects])
       }
       if (url.pathname === "/project/current" && request.method === "GET") {
         const target = url.searchParams.get("directory") ?? personalDirectory
-        const spaces = await primeKitAccount.request<Space[]>("/servers/")
+        const spaces = primeKitAccount.signedIn() ? await primeKitAccount.request<Space[]>("/servers/") : []
         const space = spaces.find((item) => spaceDirectory(item) === target)
+        if (target !== personalDirectory && !space) return await proxy(request, response, url)
         return json(response, 200, {
           id: space ? `primekit-space-${space.id}` : "primekit-personal",
           name: space?.name ?? "Ваши чаты",
@@ -666,24 +602,28 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
           time: { created: space ? millis(space.created_at) : Date.now() },
         })
       }
-      if (url.pathname === "/session/status" && request.method === "GET") return json(response, 200, Object.fromEntries(statuses))
+      if (url.pathname === "/session/status" && request.method === "GET") {
+        const local = await localJSON<Record<string, unknown>>(url)
+        return json(response, 200, { ...local, ...Object.fromEntries(statuses) })
+      }
       if (url.pathname === "/session" && request.method === "GET") {
-        const { chats, grouped } = await cloudSessions()
+        const [local, cloud] = await Promise.all([localJSON<unknown[]>(url), cloudSessions()])
         const result = [
-          ...chats.map((chat) => session(chat)),
-          ...grouped.flatMap(({ space, chats: items }) => items.map((chat) => session(chat, space))),
+          ...cloud.chats.map((chat) => session(chat)),
+          ...cloud.grouped.flatMap(({ space, chats: items }) => items.map((chat) => session(chat, space))),
         ]
-        for (const chat of chats) knownChats.set(session(chat).id, chat)
-        for (const { space, chats: items } of grouped) {
+        for (const chat of cloud.chats) knownChats.set(session(chat).id, chat)
+        for (const { space, chats: items } of cloud.grouped) {
           for (const chat of items) knownChats.set(session(chat, space).id, chat)
         }
-        return json(response, 200, result)
+        return json(response, 200, [...local, ...result])
       }
       if (url.pathname === "/session" && request.method === "POST") {
-        const input = JSON.parse((await body(request)).toString() || "{}") as { title?: string }
         const targetDirectory = url.searchParams.get("directory")
-        const spaces = targetDirectory ? await primeKitAccount.request<Space[]>("/servers/") : []
+        const spaces = targetDirectory && primeKitAccount.signedIn() ? await primeKitAccount.request<Space[]>("/servers/") : []
         const space = spaces.find((item) => spaceDirectory(item) === targetDirectory)
+        if (targetDirectory !== personalDirectory && !space) return await proxy(request, response, url)
+        const input = JSON.parse((await body(request)).toString() || "{}") as { title?: string }
         const endpoint = space ? `/servers/${space.id}/chats` : "/chats/"
         const chat = await primeKitAccount.request<Chat>(endpoint, {
           method: "POST",
@@ -725,14 +665,13 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         const input = JSON.parse((await body(request)).toString() || "{}") as { messageID?: string; parts?: Array<{ type?: string; text?: string }> }
         const prompt = (input.parts ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n").trim()
         if (!prompt) return json(response, 400, { error: "Добавьте текст" })
-        const target = await primeKitAccount.request<ExecutionTarget>(`/desktop-agent/chats/${id}/target`)
         const task = await primeKitAccount.request<UniversalTurnResponse>(`/desktop-agent/chats/${id}/turn`, {
           method: "POST",
           body: JSON.stringify({
             message: prompt,
             client_message_id: input.messageID,
             reasoning_effort: "high",
-            execution_target: target,
+            execution_target: { kind: "cloud" },
           }),
         })
         const chat = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
@@ -748,16 +687,7 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         if (!task.task_id) return json(response, 204)
         statuses.set(sid, { type: "busy" })
         emit("session.status", { sessionID: sid, status: { type: "busy" } })
-        if (task.executor_kind === "desktop" && typeof task.desktop_command_id === "number") {
-          void watchDesktopCommand(
-            chat,
-            location,
-            task.desktop_command_id,
-            persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`,
-          )
-        } else {
-          void streamTask(chat, location, task.task_id, persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`)
-        }
+        void streamTask(chat, location, task.task_id, persistedUser ? messageID(persistedUser) : `msg_pk_${task.user_message_id}`)
         return json(response, 204)
       }
       if (child === "abort" && request.method === "POST") {
@@ -869,6 +799,32 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     }
   }
   void sidebarEvents()
+  const localEvents = async () => {
+    while (!controller.signal.aborted) {
+      try {
+        const response = await fetch(`${sidecar.url}/global/event`, {
+          headers: { accept: "text/event-stream", authorization: basic(sidecar) },
+          signal: controller.signal,
+        })
+        if (!response.ok || !response.body) throw new Error(`local event stream ${response.status}`)
+        const reader = response.body.getReader()
+        for (;;) {
+          const next = await reader.read()
+          if (next.done) break
+          const chunk = Buffer.from(next.value)
+          for (const client of clients) client.write(chunk)
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          logger.error("Local OpenCode event stream reconnecting", {
+            message: cause instanceof Error ? cause.message : String(cause),
+          })
+          await delay(1_000)
+        }
+      }
+    }
+  }
+  void localEvents()
   logger.log("PrimeKit bridge online", { port: address.port })
   return {
     url: `http://127.0.0.1:${address.port}`,

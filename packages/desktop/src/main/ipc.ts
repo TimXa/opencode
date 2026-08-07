@@ -14,12 +14,6 @@ import { getPinchZoomEnabled, getWindowID, setPinchZoomEnabled, setTitlebar, upd
 import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { primeKitAccount } from "./primekit-account"
-import { authorizePrimeKitFolder, syncPrimeKitFolderGrants } from "./primekit-folders"
-import {
-  clearPrimeKitDeviceCredential,
-  getPrimeKitDeviceIdentity,
-  readPrimeKitDeviceCredential,
-} from "./primekit-device"
 import { requestPrimeKitFullDeviceAccess } from "./primekit-access"
 import { setPrimeKitComputerPermissionState } from "./primekit-access"
 import type { PrimeKitComputerProbe } from "./primekit-computer-mcp"
@@ -76,50 +70,6 @@ export function registerIpcHandlers(deps: Deps) {
     const result = await deps.requestPrimeKitComputerAccess()
     setPrimeKitComputerPermissionState(result.screen && result.input ? "ready" : "incomplete")
     return result
-  })
-  ipcMain.handle("primekit-execution-options", async () => {
-    const [runtimes, grants] = await Promise.all([
-      primeKitAccount.request("/desktop-agent/runtimes"),
-      primeKitAccount.request("/desktop-agent/folder-grants"),
-    ])
-    return { runtimes, grants }
-  })
-  ipcMain.handle("primekit-device-reconnect", async () => {
-    const device = getPrimeKitDeviceIdentity()
-    const saved = readPrimeKitDeviceCredential(device.id)
-    const runtimes = await primeKitAccount.request<Array<{ id: number; device_id: string }>>(
-      "/desktop-agent/runtimes",
-    )
-    const current = runtimes.filter(
-      (runtime) => runtime.device_id === device.id || (saved && runtime.id === saved.runtime_id),
-    )
-    for (const runtime of current) {
-      await primeKitAccount.request(`/desktop-agent/runtimes/${runtime.id}`, { method: "DELETE" })
-    }
-    clearPrimeKitDeviceCredential()
-    return { status: "reconnecting" as const }
-  })
-  ipcMain.handle("primekit-execution-target", (_event, chatID: number) =>
-    primeKitAccount.request(`/desktop-agent/chats/${chatID}/target`),
-  )
-  ipcMain.handle(
-    "primekit-execution-target-set",
-    (_event, chatID: number, target: { kind: "cloud" | "desktop"; runtime_id?: number; folder_grant_id?: number }) =>
-      primeKitAccount.request(`/desktop-agent/chats/${chatID}/target`, {
-        method: "PUT",
-        body: JSON.stringify(target),
-      }),
-  )
-  ipcMain.handle("primekit-execution-folder-authorize", async (_event, path: string) => {
-    const access = await requestPrimeKitFullDeviceAccess(true)
-    if (access !== "full_device") throw new Error("Полный доступ к этому компьютеру не включён")
-    const root = await authorizePrimeKitFolder(path)
-    const device = getPrimeKitDeviceIdentity()
-    const runtimes = await primeKitAccount.request<Array<{ id: number; device_id: string }>>("/desktop-agent/runtimes")
-    const runtime = runtimes.find((item) => item.device_id === device.id)
-    if (!runtime) throw new Error("Локальный агент ещё подключается. Повторите через несколько секунд")
-    await syncPrimeKitFolderGrants(primeKitAccount, runtime.id)
-    return root
   })
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
