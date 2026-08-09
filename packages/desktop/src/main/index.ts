@@ -228,7 +228,7 @@ const main = Effect.gen(function* () {
   }
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
-  if (yield* Effect.promise(authorizeLocalExecutor)) logger.log("hidden Mac executor authorized")
+  if (yield* Effect.promise(() => authorizeLocalExecutor())) logger.log("hidden Mac executor authorized")
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("primekit://") || arg.startsWith("opencode://"))
@@ -361,10 +361,7 @@ const main = Effect.gen(function* () {
     )
     primeKitComputer = computer
     // Runtime-only capability: never persist the ephemeral loopback token in a project config.
-    const credential = primeKitAccount.signedIn()
-      ? yield* Effect.promise(() => primeKitAccount.credential().catch(() => undefined))
-      : undefined
-    process.env.OPENCODE_CONFIG_CONTENT = getPrimeKitProviderConfig(computer.config, credential)
+    process.env.OPENCODE_CONFIG_CONTENT = getPrimeKitProviderConfig(computer.config)
 
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -18,10 +18,12 @@ function jwtExpiry(token: string) {
   return Date.now() + 60 * 60 * 1000
 }
 
+type AuthPaths = { source?: string; target?: string }
+
 /** Authorize only the hidden on-device executor. Cloud chat always goes through PrimeKit. */
-export async function authorizeLocalExecutor(): Promise<boolean> {
-  const source = join(homedir(), ".codex", "auth.json")
-  const target = join(dataHome(), "opencode", "auth.json")
+export async function authorizeLocalExecutor(paths: AuthPaths = {}): Promise<boolean> {
+  const source = paths.source ?? join(homedir(), ".codex", "auth.json")
+  const target = paths.target ?? join(dataHome(), "opencode", "auth.json")
   let codex: CodexAuth
   try {
     codex = JSON.parse(await readFile(source, "utf8"))
@@ -36,15 +38,20 @@ export async function authorizeLocalExecutor(): Promise<boolean> {
   try {
     current = JSON.parse(await readFile(target, "utf8"))
   } catch {}
-  if (current.openai) return true
-  current.openai = {
+  const next = {
     type: "oauth",
     access,
     refresh,
     expires: jwtExpiry(access),
     ...(codex.tokens?.account_id ? { accountId: codex.tokens.account_id } : {}),
   }
+  const existing = current.openai
+  if (existing && JSON.stringify(existing) === JSON.stringify(next)) return true
+  current.openai = next
   await mkdir(dirname(target), { recursive: true })
-  await writeFile(target, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })
+  const temporary = `${target}.${process.pid}.tmp`
+  await writeFile(temporary, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })
+  await rename(temporary, target)
+  await chmod(target, 0o600)
   return true
 }

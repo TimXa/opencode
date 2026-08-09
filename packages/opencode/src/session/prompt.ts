@@ -1252,6 +1252,19 @@ const layer = Layer.effect(
             yield* sessions.updateMessage(msg)
           })
 
+          const finalizeFailedAssistant = (cause: Cause.Cause<never>) =>
+            Effect.gen(function* () {
+              if (Cause.hasInterruptsOnly(cause)) return yield* Effect.failCause(cause)
+              if (!msg.time.completed) {
+                msg.error ??= MessageV2.fromError(Cause.squash(cause), { providerID: msg.providerID })
+                msg.finish ??= "error"
+                msg.time.completed = Date.now()
+                yield* sessions.updateMessage(msg)
+                yield* events.publish(Session.Event.Error, { sessionID, error: msg.error })
+              }
+              return yield* Effect.failCause(cause)
+            })
+
           const handle = yield* processor
             .create({
               assistantMessage: msg,
@@ -1375,6 +1388,7 @@ const layer = Layer.effect(
           }).pipe(
             Effect.ensuring(instruction.clear(handle.message.id)),
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
+            Effect.catchCause(finalizeFailedAssistant),
           )
           if (outcome === "break") break
           continue

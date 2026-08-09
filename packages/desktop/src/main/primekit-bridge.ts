@@ -91,10 +91,10 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const basic = (server: LocalServer) => `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`
 const downloadMarker = /\[DOWNLOAD:(\w+):([^\]]+)\]/g
 let fileOrigin = ""
-const kitModel = {
-  id: "kit",
-  providerID: "kit",
-  api: { id: "kit", url: "", npm: "primekit" },
+const coworkModel = {
+  id: "gpt-5.6-sol",
+  providerID: "openai",
+  api: { id: "gpt-5.6-sol", url: "", npm: "@ai-sdk/openai" },
   name: "Кит",
   capabilities: {
     temperature: false,
@@ -110,7 +110,14 @@ const kitModel = {
   options: {},
   headers: {},
 }
-const kitProvider = { id: "kit", name: "Кит", source: "custom", env: [], options: {}, models: { kit: kitModel } }
+const coworkProvider = {
+  id: "openai",
+  name: "Кит",
+  source: "custom",
+  env: [],
+  options: {},
+  models: { "gpt-5.6-sol": coworkModel },
+}
 const spaceIcon = (space: Space) => {
   const fallback = space.project_type === "channel" ? 109 : space.project_type === "group" ? 165 : 286
   return `https://primekit-job.ru/tg-icons-svg/${String(space.icon_index || fallback).padStart(4, "0")}.svg`
@@ -536,11 +543,18 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
         return
       }
       if (url.pathname === "/provider" && request.method === "GET") {
-        return json(response, 200, { all: [kitProvider], default: { kit: "kit" }, connected: ["kit"] })
+        return json(response, 200, {
+          all: [coworkProvider],
+          default: { openai: "gpt-5.6-sol" },
+          connected: ["openai"],
+        })
       }
       if (url.pathname === "/provider/auth" && request.method === "GET") return json(response, 200, {})
       if (url.pathname === "/config/providers" && request.method === "GET") {
-        return json(response, 200, { providers: [kitProvider], default: { kit: "kit" } })
+        return json(response, 200, {
+          providers: [coworkProvider],
+          default: { openai: "gpt-5.6-sol" },
+        })
       }
       if (url.pathname === "/api/session" && request.method === "GET") {
         const [local, cloud] = await Promise.all([

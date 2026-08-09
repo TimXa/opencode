@@ -6,22 +6,21 @@ type ComputerMcp = {
   timeout: number
 }
 
-export function getPrimeKitProviderConfig(computer?: ComputerMcp, credential?: string) {
-  const api = `${process.env.PRIMEKIT_ACCOUNT_API_URL ?? "https://primekit-job.ru/api"}/v1`
+export function getPrimeKitProviderConfig(computer?: ComputerMcp) {
   return JSON.stringify({
-    model: "kit/kit",
-    enabled_providers: ["kit"],
+    model: "openai/gpt-5.6-sol",
+    enabled_providers: ["openai"],
+    // A user's global OpenCode config may disable OpenAI. Cowork deliberately
+    // uses the direct Codex model path, so the desktop-owned config is authoritative.
+    disabled_providers: [],
     share: "disabled",
     autoupdate: false,
     ...(computer ? { mcp: { primekit_computer: computer } } : {}),
     provider: {
-      kit: {
+      openai: {
         name: "Кит",
-        npm: "@ai-sdk/openai-compatible",
-        api,
-        options: { baseURL: api, ...(credential ? { headers: { Authorization: `Bearer ${credential}` } } : {}) },
-        whitelist: ["kit"],
-        models: { kit: { name: "Кит" } },
+        whitelist: ["gpt-5.6-sol"],
+        models: { "gpt-5.6-sol": { name: "Кит" } },
       },
     },
   })
