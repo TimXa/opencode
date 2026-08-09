@@ -17,6 +17,8 @@ import { useServerSDK } from "@/context/server-sdk"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { ProjectIcon, compactAge } from "./layout/sidebar-items"
 import { pathKey } from "@/utils/path-key"
+import { useTabs } from "@/context/tabs"
+import { useServer } from "@/context/server"
 
 export default function NewLayout(props: ParentProps) {
   const navigate = useNavigate()
@@ -24,6 +26,8 @@ export default function NewLayout(props: ParentProps) {
   const layout = useLayout()
   const serverSync = useServerSync()
   const serverSDK = useServerSDK()
+  const tabs = useTabs()
+  const server = useServer()
   const showSettings = useSettingsDialog(window.api?.primekit ? "primekit" : "general")
   setNavigate(navigate)
   const [state, setState] = createStore({
@@ -70,7 +74,7 @@ export default function NewLayout(props: ParentProps) {
       (state.agent === "cloud" ? cloudPersonalProject()?.worktree : await window.api?.primekit?.jarvisWorkspace())
     if (!target) return
     layout.projects.open(target)
-    navigate(`/${base64Encode(target)}/session`)
+    await tabs.newDraft({ server: server.key, directory: target })
   }
   const selectAgent = async (agent: "cloud" | "cowork") => {
     setState("agent", agent)
