@@ -53,6 +53,12 @@ export type PrimeKitComputerAccess = {
   reason?: string
 }
 
+export type PrimeKitSpeechWebSocketConfig = {
+  primaryURL: string
+  fallbackURL: string
+  primaryReady: boolean
+}
+
 export type ElectronAPI = {
   primekit: {
     state: () => Promise<PrimeKitAccountState>
@@ -60,6 +66,7 @@ export type ElectronAPI = {
     verifyEmailCode: (email: string, code: string) => Promise<PrimeKitAccountState["user"]>
     logout: () => Promise<void>
     requestComputerAccess: () => Promise<PrimeKitComputerAccess>
+    speechWebSocketConfig: () => Promise<PrimeKitSpeechWebSocketConfig>
   }
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>

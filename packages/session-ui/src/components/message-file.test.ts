@@ -18,6 +18,7 @@ function file(part: Partial<FilePart> = {}): FilePart {
 describe("message-file", () => {
   test("treats data URLs as attachments", () => {
     expect(attached(file({ url: "data:text/plain;base64,SGVsbG8=" }))).toBe(true)
+    expect(attached(file({ url: "http://127.0.0.1:4096/primekit/files/file-1/download" }))).toBe(true)
     expect(attached(file())).toBe(false)
   })
 

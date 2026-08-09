@@ -1643,6 +1643,26 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   )
 }
 
+PART_MAPPING["file"] = function AssistantFilePartDisplay(props) {
+  const part = () => props.part as FilePart
+  const name = () => part().filename || "Файл"
+  return (
+    <a
+      data-component="assistant-file"
+      data-timeline-part-id={part().id}
+      class="block w-fit max-w-full no-underline"
+      href={part().url}
+      download={name()}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <AttachmentCardV2 title={getFilename(name())} hover={name()} clickable>
+        {typeLabel(name(), part().mime)}
+      </AttachmentCardV2>
+    </a>
+  )
+}
+
 export function MessageDivider(props: { label: string }) {
   return (
     <div data-component="compaction-part">

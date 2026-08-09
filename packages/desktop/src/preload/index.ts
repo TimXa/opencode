@@ -17,6 +17,7 @@ const api: ElectronAPI = {
     verifyEmailCode: (email, code) => ipcRenderer.invoke("primekit-auth-verify-code", email, code),
     logout: () => ipcRenderer.invoke("primekit-auth-logout"),
     requestComputerAccess: () => ipcRenderer.invoke("primekit-computer-access-request"),
+    speechWebSocketConfig: () => ipcRenderer.invoke("primekit-speech-websocket-config"),
   },
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),

@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { primeKitAccount } from "./primekit-account"
 import { publishPrimeKitSidebarEvent, type PrimeKitSidebarEvent } from "./primekit-sidebar-events"
+import { assignPrimeKitChatFiles, type PrimeKitChatFile } from "./primekit-chat-files"
 import pkg from "../../package.json"
 
 type LocalServer = { url: string; username: string; password: string }
@@ -16,6 +17,7 @@ type Chat = {
   messages?: ChatMessage[]
   active_task_id?: number | null
   is_pinned?: boolean
+  chat_files?: PrimeKitChatFile[]
 }
 type Space = {
   id: number
@@ -32,6 +34,7 @@ type UniversalTurnResponse = {
   user_message_id: number
   status: string
 }
+type UploadedFile = { file_id: string; filename: string; size: number; type?: string }
 type ChatLocation = { kind: "general"; chatID: number } | { kind: "space"; spaceID: number; chatID: number }
 type ChatMessage = {
   id: number
@@ -152,7 +155,7 @@ const objectArgs = (value: PrimeKitStep["args"]) => {
   }
 }
 
-const richParts = (item: ChatMessage, sid: string, mid: string, created: number) => {
+const richParts = (item: ChatMessage, sid: string, mid: string, created: number, chatFiles: PrimeKitChatFile[] = []) => {
   const parts: Array<Record<string, unknown>> = []
   const steps = item.steps_json?.length ? item.steps_json : item.tool_calls_json ?? []
   let hasText = false
@@ -201,7 +204,7 @@ const richParts = (item: ChatMessage, sid: string, mid: string, created: number)
     parts.push({ id: id("text"), sessionID: sid, messageID: mid, type: "text", text: item.content, time: { start: created, end: created } })
   }
 
-  const files = [...(item.attached_files_json ?? [])]
+  const files = [...(item.attached_files_json ?? []), ...chatFiles]
   for (const step of steps) {
     for (const match of String(step.result || "").matchAll(downloadMarker)) {
       files.push({ file_id: match[1], filename: match[2] })
@@ -215,7 +218,8 @@ const richParts = (item: ChatMessage, sid: string, mid: string, created: number)
     seen.add(fileID)
     parts.push({
       id: id("file"), sessionID: sid, messageID: mid, type: "file", filename,
-      mime: file.type || "application/octet-stream", url: `${fileOrigin}/primekit/files/${encodeURIComponent(fileID)}/download`,
+      mime: file.type || ("mime_type" in file ? file.mime_type : undefined) || "application/octet-stream", url: `${fileOrigin}/primekit/files/${encodeURIComponent(fileID)}/download`,
+      metadata: { source: "source" in file ? file.source : undefined, size: file.size },
     })
   }
   return parts
@@ -280,7 +284,13 @@ const applyStreamEvent = (item: ChatMessage, event: PrimeKitStreamEvent) => {
   }
 }
 
-function message(message: ChatMessage, chat: Chat, previousUserID: string, location: ChatLocation = { kind: "general", chatID: chat.id }) {
+function message(
+  message: ChatMessage,
+  chat: Chat,
+  previousUserID: string,
+  location: ChatLocation = { kind: "general", chatID: chat.id },
+  chatFiles: PrimeKitChatFile[] = [],
+) {
   const id = messageID(message)
   const created = millis(message.created_at)
   const info =
@@ -307,13 +317,60 @@ function message(message: ChatMessage, chat: Chat, previousUserID: string, locat
           cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         }
-  return { info, parts: richParts(message, sessionID(location), id, created) }
+  return { info, parts: richParts(message, sessionID(location), id, created, chatFiles) }
+}
+
+/**
+ * The website returns files created by Kit in `chat_files`, separately from
+ * message attachments. Keep the UI protocol message-shaped by associating
+ * explicit message ids first and placing any remaining resources on the last
+ * assistant response. This mirrors the website workspace without duplicating
+ * the same file in the timeline.
+ */
+export function mapPrimeKitChatMessages(
+  chat: Chat,
+  location: ChatLocation = { kind: "general", chatID: chat.id },
+) {
+  const items = chat.messages ?? []
+  const resources = assignPrimeKitChatFiles(items, chat.chat_files ?? [])
+  let parent = `msg_pk_root_${chat.id}`
+  return items.map((item) => {
+    const mapped = message(item, chat, parent, location, resources.get(item.id))
+    if (item.role === "user") parent = mapped.info.id
+    return mapped
+  })
 }
 
 async function body(request: IncomingMessage) {
   const chunks: Buffer[] = []
   for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   return Buffer.concat(chunks)
+}
+
+async function uploadPromptFiles(parts: Array<{ type?: string; url?: string; filename?: string; mime?: string }>) {
+  return Promise.all(
+    parts.flatMap((part) => {
+      if (part.type !== "file" || !part.url?.startsWith("data:") || !part.filename) return []
+      return [
+        (async () => {
+          const source = await fetch(part.url!)
+          if (!source.ok) throw new Error(`Не удалось прочитать файл ${part.filename}`)
+          const blob = await source.blob()
+          const form = new FormData()
+          form.append("file", blob, part.filename)
+          const response = await primeKitAccount.open("/chat/upload", { method: "POST", body: form })
+          if (!response.ok) throw new Error(`Не удалось загрузить файл ${part.filename} (${response.status})`)
+          const uploaded = (await response.json()) as {
+            file_id: string
+            filename: string
+            size: number
+            content_type?: string
+          }
+          return { ...uploaded, type: uploaded.content_type || part.mime } satisfies UploadedFile
+        })(),
+      ]
+    }),
+  )
 }
 
 function json(response: ServerResponse, status: number, value?: unknown) {
@@ -340,10 +397,7 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     const info = session(chat, space)
     emit(created ? "session.created" : "session.updated", { sessionID: info.id, info })
     const detail = chat.messages ? chat : await primeKitAccount.request<Chat>(chatPath(location, "?limit=40"))
-    let parent = `msg_pk_root_${chat.id}`
-    for (const item of detail.messages ?? []) {
-      const mapped = message(item, detail, parent, location)
-      if (item.role === "user") parent = mapped.info.id
+    for (const mapped of mapPrimeKitChatMessages(detail, location)) {
       emit("message.updated", { sessionID: info.id, info: mapped.info })
       for (const part of mapped.parts) emit("message.part.updated", { sessionID: info.id, part, time: Date.now() })
     }
@@ -656,35 +710,39 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
       const id = location.chatID
       if (child === "message" && request.method === "GET") {
         const chat = await primeKitAccount.request<Chat>(chatPath(location, `?limit=${url.searchParams.get("limit") ?? "120"}`))
-        let parent = `msg_pk_root_${id}`
-        const messages = (chat.messages ?? []).map((item) => {
-          const mapped = message(item, chat, parent, location)
-          if (item.role === "user") parent = mapped.info.id
-          return mapped
-        })
-        return json(response, 200, messages)
+        return json(response, 200, mapPrimeKitChatMessages(chat, location))
       }
       if (child.startsWith("message/") && request.method === "GET") {
         const wanted = decodeURIComponent(child.slice("message/".length))
         const chat = await primeKitAccount.request<Chat>(chatPath(location, "?limit=120"))
-        let parent = `msg_pk_root_${id}`
-        for (const item of chat.messages ?? []) {
-          const mapped = message(item, chat, parent, location)
-          if (item.role === "user") parent = mapped.info.id
+        for (const mapped of mapPrimeKitChatMessages(chat, location)) {
           if (mapped.info.id === wanted) return json(response, 200, mapped)
         }
         return json(response, 404, { error: "Сообщение не найдено" })
       }
       if (child === "prompt_async" && request.method === "POST") {
-        const input = JSON.parse((await body(request)).toString() || "{}") as { messageID?: string; parts?: Array<{ type?: string; text?: string }> }
+        const input = JSON.parse((await body(request)).toString() || "{}") as {
+          messageID?: string
+          parts?: Array<{ type?: string; text?: string; url?: string; filename?: string; mime?: string }>
+        }
         const prompt = (input.parts ?? []).filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n").trim()
-        if (!prompt) return json(response, 400, { error: "Добавьте текст" })
+        const uploadedFiles = await uploadPromptFiles(input.parts ?? [])
+        if (!prompt && uploadedFiles.length === 0) return json(response, 400, { error: "Добавьте текст или файл" })
+        if (uploadedFiles.length) {
+          await primeKitAccount.request(chatPath(location, "/files"), {
+            method: "POST",
+            body: JSON.stringify({
+              files: uploadedFiles.map((file) => ({ file_id: file.file_id, filename: file.filename, source: "user" })),
+            }),
+          })
+        }
         const task = await primeKitAccount.request<UniversalTurnResponse>(`/desktop-agent/chats/${id}/turn`, {
           method: "POST",
           body: JSON.stringify({
             message: prompt,
             client_message_id: input.messageID,
             reasoning_effort: "high",
+            uploaded_files: uploadedFiles.length ? uploadedFiles : undefined,
             execution_target: { kind: "cloud" },
           }),
         })

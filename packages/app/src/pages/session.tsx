@@ -550,6 +550,18 @@ export default function Page() {
   const historyMore = timeline.history.more
   const lastUserMessage = timeline.lastUserMessage
   const messages = timeline.messages
+  const sessionResources = createMemo(() => {
+    const seen = new Set<string>()
+    return messages().flatMap((message) =>
+      (sync().data.part[message.id] ?? []).flatMap((part) => {
+        if (part.type !== "file") return []
+        const key = part.url || `${part.filename ?? ""}:${part.id}`
+        if (seen.has(key)) return []
+        seen.add(key)
+        return [part]
+      }),
+    )
+  })
   const messagesReady = timeline.ready
   const sessionSync = timeline.resource
   const userMessages = timeline.userMessages
@@ -2231,7 +2243,7 @@ export default function Page() {
                       },
                     })
                     return (
-                      <PromptInputV2Composer controller={controller} borderUnderlay />
+                      <PromptInputV2Composer controller={controller} resources={sessionResources()} />
                     )
                   }}
                 </Show>

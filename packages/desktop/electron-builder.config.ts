@@ -97,6 +97,9 @@ const getBase = (appId: string): Configuration => ({
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
+    extendInfo: {
+      NSMicrophoneUsageDescription: "Кит использует микрофон только во время голосовой диктовки.",
+    },
     notarize: true,
     target: ["dmg", "zip"],
   },

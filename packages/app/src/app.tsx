@@ -293,6 +293,11 @@ declare global {
           input: boolean
           reason?: string
         }>
+        speechWebSocketConfig: () => Promise<{
+          primaryURL: string
+          fallbackURL: string
+          primaryReady: boolean
+        }>
       }
     }
   }

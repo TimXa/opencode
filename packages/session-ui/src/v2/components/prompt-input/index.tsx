@@ -40,6 +40,7 @@ export type PromptInputV2Props = {
   borderUnderlay?: boolean
   class?: string
   modelControl?: JSX.Element
+  toolbarAccessory?: JSX.Element
   variantControlVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
@@ -52,6 +53,7 @@ export type PromptInputV2Props = {
     placeholder: string
     add: string
     files: string
+    resources: string
     context: string
     shell: string
     chooseAgent: string
@@ -60,6 +62,7 @@ export type PromptInputV2Props = {
     send: string
     stop: string
   }
+  resources?: { count: number; onOpen: () => void }
 }
 
 export function PromptInputV2(props: PromptInputV2Props) {
@@ -222,6 +225,8 @@ export function PromptInputV2(props: PromptInputV2Props) {
               keybind={props.attachKeybind ?? ["Mod", "U"]}
               attachLabel={props.labels?.files ?? "Images and files"}
               attachShortcut={props.attachShortcut ?? "Mod+U"}
+              resources={props.resources}
+              resourcesLabel={props.labels?.resources ?? "Chat resources"}
               commandsLabel={props.labels?.commands ?? "Commands"}
               contextLabel={props.labels?.context ?? "Context"}
               shellLabel={props.labels?.shell ?? "Shell command"}
@@ -268,6 +273,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
               )}
             </Show>
           </div>
+          {props.toolbarAccessory}
           <PromptInputV2SubmitButton
             mode={state.mode}
             stopping={view.submit.stopping()}
@@ -486,6 +492,8 @@ export function PromptInputV2AddMenu(props: {
   keybind?: string[]
   attachLabel: string
   attachShortcut?: string
+  resources?: { count: number; onOpen: () => void }
+  resourcesLabel: string
   commandsLabel: string
   contextLabel: string
   shellLabel: string
@@ -520,6 +528,18 @@ export function PromptInputV2AddMenu(props: {
             <MenuV2.Item onSelect={props.onAttach} shortcut={props.attachShortcut}>
               {props.attachLabel}
             </MenuV2.Item>
+            <Show when={props.resources}>
+              {(resources) => (
+                <MenuV2.Item onSelect={resources().onOpen}>
+                  <span class="flex min-w-0 flex-1 items-center justify-between gap-4">
+                    <span>{props.resourcesLabel}</span>
+                    <Show when={resources().count > 0}>
+                      <span class="tabular-nums text-v2-text-text-muted">{resources().count}</span>
+                    </Show>
+                  </span>
+                </MenuV2.Item>
+              )}
+            </Show>
             <MenuV2.Separator />
             <MenuV2.Item onSelect={props.onCommands} shortcut="/">
               {props.commandsLabel}

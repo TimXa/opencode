@@ -3,7 +3,13 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Mark } from "@opencode-ai/ui/logo"
 import { Icon } from "@opencode-ai/ui/v2/icon"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
-import { createEffect, createMemo, on, Show } from "solid-js"
+import { createEffect, createMemo, on, onCleanup, Show } from "solid-js"
+import { createStore } from "solid-js/store"
+import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
+import { DialogBody, DialogHeader, DialogTitleGroup, DialogV2 } from "@opencode-ai/ui/v2/dialog-v2"
+import { FileIcon } from "@opencode-ai/ui/file-icon"
+import type { FilePart } from "@opencode-ai/sdk/v2"
+import { getFilename } from "@opencode-ai/core/util/path"
 import type { PromptInputProps } from "@/components/prompt-input/contracts"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
 import { createPersistedPromptInputHistory } from "@/components/prompt-input/history-store"
@@ -21,6 +27,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { showToast } from "@/utils/toast"
+import { PrimeKitSpeechStream } from "@/utils/primekit-speech-stream"
 import { PromptInputV2, type PromptInputV2Suggestion } from "@opencode-ai/session-ui/v2/prompt-input"
 import {
   createPromptInputV2Controller,
@@ -32,6 +39,7 @@ export type PromptInputV2ComposerProps = {
   class?: string
   controller: PromptInputV2ComposerController
   borderUnderlay?: boolean
+  resources?: FilePart[]
 }
 
 export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
@@ -42,6 +50,8 @@ export type PromptInputV2ComposerController = PromptInputV2Interaction & {
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
   const command = useCommand()
   const language = useLanguage()
+  const dialog = useDialog()
+  const openResources = () => dialog.show(() => <PrimeKitResources files={props.resources ?? []} />)
 
   return (
     <div class="flex flex-col gap-3">
@@ -61,6 +71,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
           placeholder: language.t("prompt.placeholder.simple"),
           add: language.t("prompt.menu.addImagesAndFiles"),
           files: language.t("prompt.menu.imagesAndFiles"),
+          resources: "Ресурсы чата",
           context: language.t("prompt.menu.context"),
           shell: language.t("prompt.menu.shellCommand"),
           chooseAgent: language.t("command.agent.cycle"),
@@ -78,7 +89,157 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
             />
           </div>
         }
+        toolbarAccessory={window.api?.primekit ? <PrimeKitVoiceInput controller={props.controller} /> : undefined}
+        resources={window.api?.primekit ? { count: props.resources?.length ?? 0, onOpen: openResources } : undefined}
       />
+    </div>
+  )
+}
+
+function PrimeKitResources(props: { files: FilePart[] }) {
+  return (
+    <DialogV2 size="large">
+      <DialogHeader closeLabel="Закрыть">
+        <DialogTitleGroup
+          title="Ресурсы чата"
+          description="Файлы пользователя и материалы, подготовленные Китом"
+        />
+      </DialogHeader>
+      <DialogBody class="min-h-0 overflow-y-auto px-4 pb-4">
+        <Show
+          when={props.files.length > 0}
+          fallback={
+            <div class="grid min-h-48 place-items-center text-center text-v2-text-text-muted">
+              В этом чате пока нет файлов
+            </div>
+          }
+        >
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {props.files.map((file) => {
+              const name = file.filename || "Файл"
+              return (
+                <a
+                  class="flex min-w-0 items-center gap-3 rounded-lg border border-v2-border-border-weak px-3 py-3 text-v2-text-text-base no-underline transition-colors duration-150 hover:bg-v2-background-bg-hover focus-visible:outline-2 focus-visible:outline-v2-border-border-focus"
+                  href={file.url}
+                  download={name}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <FileIcon node={{ path: name, type: "file" }} class="size-5 shrink-0" />
+                  <span class="min-w-0 truncate">{getFilename(name)}</span>
+                </a>
+              )
+            })}
+          </div>
+        </Show>
+      </DialogBody>
+    </DialogV2>
+  )
+}
+
+function PrimeKitVoiceInput(props: { controller: PromptInputV2ComposerController }) {
+  const [voice, setVoice] = createStore({ active: false, connecting: false })
+  let speech: PrimeKitSpeechStream | undefined
+  let media: MediaStream | undefined
+
+  const releaseMedia = () => {
+    media?.getTracks().forEach((track) => track.stop())
+    media = undefined
+  }
+
+  const stop = () => {
+    const current = speech
+    current?.end()
+    releaseMedia()
+    setVoice({ active: false, connecting: Boolean(current) })
+  }
+
+  const start = async () => {
+    const config = window.api?.primekit?.speechWebSocketConfig
+    if (!config || !navigator.mediaDevices?.getUserMedia) {
+      showToast({ title: "Диктовка недоступна", description: "Обновите приложение и попробуйте снова." })
+      return
+    }
+    setVoice("connecting", true)
+    const current = props.controller.value().trim()
+    const prefix = current ? `${current} ` : ""
+    const update = (transcript: string) => {
+      const text = `${prefix}${transcript}`.trimStart()
+      const images = props.controller.parts().filter((part) => part.type === "image")
+      props.controller.onInput(text, [{ type: "text", content: text, start: 0, end: text.length }, ...images], text.length)
+    }
+    speech = new PrimeKitSpeechStream({
+      onPartial: update,
+      onFinal: update,
+      onError: (description) => {
+        showToast({ title: "Диктовка прервана", description })
+        releaseMedia()
+        setVoice({ active: false, connecting: false })
+      },
+      onDone: () => {
+        speech = undefined
+        releaseMedia()
+        setVoice({ active: false, connecting: false })
+      },
+    })
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      })
+      media = stream
+      const settings = await config()
+      await speech.connect(stream, settings)
+      setVoice({ active: true, connecting: false })
+    } catch (cause) {
+      speech.close()
+      speech = undefined
+      releaseMedia()
+      setVoice({ active: false, connecting: false })
+      showToast({
+        title: "Не удалось включить микрофон",
+        description: cause instanceof Error ? cause.message : "Проверьте доступ к микрофону и подключение.",
+      })
+    }
+  }
+
+  onCleanup(() => {
+    speech?.close()
+    releaseMedia()
+  })
+  return (
+    <div class="relative flex items-center gap-1">
+      <Show when={voice.active}>
+        <span data-kit-voice-wave aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </span>
+      </Show>
+      <IconButtonV2
+        data-action="prompt-voice"
+        type="button"
+        variant="ghost"
+        size="normal"
+        disabled={voice.connecting}
+        class="rounded-full transition-transform duration-150 ease-out active:scale-[.96] motion-reduce:transition-none"
+        classList={{ "text-v2-text-text-base bg-v2-background-bg-hover": voice.active || voice.connecting }}
+        aria-label={voice.active ? "Остановить диктовку" : voice.connecting ? "Обработка диктовки" : "Диктовать сообщение"}
+        aria-pressed={voice.active}
+        onClick={() => (voice.active ? stop() : void start())}
+        icon={
+          <span class="relative grid place-items-center">
+            <Icon name="microphone" />
+            <Show when={voice.active || voice.connecting}>
+              <span class="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-red-500" />
+            </Show>
+          </span>
+        }
+      />
+      <span class="sr-only" aria-live="polite">
+        {voice.active ? "Идёт диктовка" : voice.connecting ? "Обрабатываем диктовку" : ""}
+      </span>
     </div>
   )
 }

@@ -199,12 +199,55 @@
 }
 
 [data-kit-shell] [data-action="prompt-submit"] {
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 999px;
   transition-property: color, background-color, transform;
   transition-duration: 120ms;
   transition-timing-function: ease-out;
+}
+
+[data-kit-shell] :is([data-action="prompt-attach"], [data-action="prompt-voice"]) {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 999px;
+}
+
+[data-kit-voice-wave] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 28px;
+  height: 24px;
+  color: var(--kit-accent);
+}
+
+[data-kit-voice-wave] > span {
+  width: 2px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: kit-voice-wave 720ms ease-in-out infinite alternate;
+}
+
+[data-kit-voice-wave] > span:nth-child(2),
+[data-kit-voice-wave] > span:nth-child(4) {
+  animation-delay: -240ms;
+}
+
+[data-kit-voice-wave] > span:nth-child(3) {
+  animation-delay: -480ms;
+}
+
+@keyframes kit-voice-wave {
+  to {
+    height: 18px;
+  }
 }
 
 [data-kit-shell] [data-action="prompt-submit"]:active:not(:disabled) {
@@ -270,6 +313,11 @@
   [data-kit-primary-action]:active,
   [data-kit-shell] [data-action="prompt-submit"]:active:not(:disabled) {
     transform: none;
+  }
+
+  [data-kit-voice-wave] > span {
+    animation: none;
+    height: 10px;
   }
 }
 

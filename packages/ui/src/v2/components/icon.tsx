@@ -49,6 +49,10 @@ const icons = {
     viewBox: "0 0 16 16",
     body: `<path d="M8 2.88867V13.1109" stroke="currentColor" stroke-linejoin="round"/><path d="M2.88867 8H13.1109" stroke="currentColor" stroke-linejoin="round"/>`,
   },
+  microphone: {
+    viewBox: "0 0 16 16",
+    body: `<path d="M8 10.25C9.38 10.25 10.5 9.13 10.5 7.75V4.5C10.5 3.12 9.38 2 8 2C6.62 2 5.5 3.12 5.5 4.5V7.75C5.5 9.13 6.62 10.25 8 10.25Z" stroke="currentColor" stroke-linecap="round"/><path d="M3.75 7.5V7.75C3.75 10.1 5.65 12 8 12C10.35 12 12.25 10.1 12.25 7.75V7.5M8 12V14M5.75 14H10.25" stroke="currentColor" stroke-linecap="round"/>`,
+  },
   "settings-gear": {
     viewBox: "0 0 16 16",
     body: `<path d="M7.99998 1.3335L14 4.66683V11.3335L7.99998 14.6668L2 11.3335V4.66683L7.99998 1.3335Z" stroke="currentColor"/><path d="M9.99998 8.00016C9.99998 9.10476 9.10458 10.0002 7.99998 10.0002C6.89538 10.0002 5.99998 9.10476 5.99998 8.00016C5.99998 6.89556 6.89538 6.00016 7.99998 6.00016C9.10458 6.00016 9.99998 6.89556 9.99998 8.00016Z" stroke="currentColor"/>`,

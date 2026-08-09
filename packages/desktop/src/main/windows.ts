@@ -21,7 +21,8 @@ const rendererProtocol = "oc"
 const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
 const notificationPermission = "notifications"
-const rendererPermissions = new Set([clipboardWritePermission, notificationPermission])
+const mediaPermission = "media"
+const rendererPermissions = new Set([clipboardWritePermission, notificationPermission, mediaPermission])
 const primekitTheme = primekitThemeJson as DesktopTheme
 const primekitBackground = {
   light: resolveThemeVariant(primekitTheme.light, false)["background-base"],
