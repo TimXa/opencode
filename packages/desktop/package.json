@@ -1,7 +1,7 @@
 {
   "name": "@primekit/desktop",
   "private": true,
-  "version": "1.18.20",
+  "version": "1.18.21",
   "type": "module",
   "license": "MIT",
   "homepage": "https://primekit-job.ru",
