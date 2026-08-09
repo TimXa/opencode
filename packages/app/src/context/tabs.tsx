@@ -46,6 +46,10 @@ export const tabHref = (tab: Tab) =>
 
 export const tabKey = (tab: Tab) => (tab.type === "draft" ? `draft:${tab.draftID}` : `${tab.server}\n${tabHref(tab)}`)
 
+export function tabToResume(tabs: Tab[], recent?: string) {
+  return tabs.find((tab) => tabKey(tab) === recent) ?? tabs.at(-1)
+}
+
 export function sessionHasOpenTab(tabs: Tab[], server: ServerConnection.Key, session: Session) {
   return tabs.some((tab) => tab.type === "session" && tab.server === server && tab.sessionId === session.id)
 }
@@ -358,16 +362,18 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       },
       toggleHome(input: { home: boolean; current?: Tab }) {
         if (input.home) {
-          const tab = store.find((tab) => tabKey(tab) === recentKey())
-          if (tab) navigateTab(tab)
-          return
+          const tab = tabToResume(store, recentKey())
+          if (!tab) return false
+          navigateTab(tab)
+          return true
         }
         if (input.current) {
           setRecentKey(tabKey(input.current))
           navigate("/")
-          return
+          return true
         }
         navigate("/")
+        return true
       },
       state<T>(tab: Tab, name: string, init: () => T) {
         return memory.ensure(tabKey(tab), name, init)

@@ -16,6 +16,7 @@ import { useSettingsDialog } from "@/components/settings-dialog"
 import { useServerSDK } from "@/context/server-sdk"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { ProjectIcon, compactAge } from "./layout/sidebar-items"
+import { pathKey } from "@/utils/path-key"
 
 export default function NewLayout(props: ParentProps) {
   const navigate = useNavigate()
@@ -33,6 +34,7 @@ export default function NewLayout(props: ParentProps) {
     agent: "cowork" as "cloud" | "cowork",
   })
   const [account] = createResource(async () => window.api?.primekit?.state())
+  const [jarvisWorkspace] = createResource(async () => window.api?.primekit?.jarvisWorkspace())
 
   createEffect(() => setV2Toast(true))
   createEffect(() => {
@@ -43,26 +45,40 @@ export default function NewLayout(props: ParentProps) {
   })
 
   const projects = createMemo(() => layout.projects.list())
-  const personalProject = createMemo(() => projects().find((project) => project.id === "primekit-personal"))
+  const cloudPersonalProject = createMemo(() => projects().find((project) => project.id === "primekit-personal"))
+  const jarvisPersonalProject = createMemo(() => {
+    const worktree = jarvisWorkspace()
+    if (!worktree) return undefined
+    return projects().find((project) => pathKey(project.worktree) === pathKey(worktree))
+  })
+  const personalProject = createMemo(() => (state.agent === "cloud" ? cloudPersonalProject() : jarvisPersonalProject()))
   const cloudProject = (id?: string) => id === "primekit-personal" || id?.startsWith("primekit-space-") === true
+  const jarvisProject = (worktree: string) => {
+    const personal = jarvisWorkspace()
+    return personal ? pathKey(worktree) === pathKey(personal) : false
+  }
   const visibleProjects = createMemo(() =>
     projects().filter((project) =>
       state.agent === "cloud"
         ? cloudProject(project.id) && project.id !== "primekit-personal"
-        : !cloudProject(project.id),
+        : !cloudProject(project.id) && !jarvisProject(project.worktree),
     ),
   )
-  const startNewChat = (
-    worktree = state.agent === "cloud" ? personalProject()?.worktree : visibleProjects()[0]?.worktree,
-  ) => {
-    if (!worktree) return
-    navigate(`/${base64Encode(worktree)}/session`)
+  const startNewChat = async (worktree?: string) => {
+    const target =
+      worktree ??
+      (state.agent === "cloud" ? cloudPersonalProject()?.worktree : await window.api?.primekit?.jarvisWorkspace())
+    if (!target) return
+    layout.projects.open(target)
+    navigate(`/${base64Encode(target)}/session`)
   }
   const selectAgent = async (agent: "cloud" | "cowork") => {
     setState("agent", agent)
     if (agent === "cowork") await window.api?.primekit?.requestComputerAccess()
-    const project = agent === "cloud" ? personalProject() : projects().find((item) => !cloudProject(item.id))
-    if (project) navigate(`/${base64Encode(project.worktree)}/session`)
+    const target = agent === "cloud" ? cloudPersonalProject()?.worktree : await window.api?.primekit?.jarvisWorkspace()
+    if (!target) return
+    layout.projects.open(target)
+    navigate(`/${base64Encode(target)}/session`)
   }
   const agents = [
     { id: "cloud" as const, label: "Облако", description: "Чаты и пространства Кита" },
@@ -128,7 +144,7 @@ export default function NewLayout(props: ParentProps) {
                   variant="ghost"
                   size="large"
                   aria-label="Поиск"
-                  onClick={() => navigate("/")}
+                  onClick={() => navigate("/", { state: { primekitSearch: true } })}
                 />
               </div>
             </div>
@@ -136,7 +152,7 @@ export default function NewLayout(props: ParentProps) {
               type="button"
               data-kit-primary-action
               class="mt-3 flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[14px] font-medium text-white/90 transition-colors hover:bg-[rgba(255,255,255,0.09)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none [-webkit-app-region:no-drag]"
-              onClick={() => startNewChat()}
+              onClick={() => void startNewChat()}
             >
               <IconV2 name="edit" size="small" />
               Новый чат
@@ -225,7 +241,7 @@ export default function NewLayout(props: ParentProps) {
                           type="button"
                           class="flex size-7 shrink-0 items-center justify-center rounded-md text-white/45 opacity-0 transition-opacity hover:bg-[rgba(255,255,255,0.10)] hover:text-white group-hover/project:opacity-100 focus:opacity-100 motion-reduce:transition-none"
                           aria-label={`Новый чат в ${displayName(project)}`}
-                          onClick={() => startNewChat(project.worktree)}
+                          onClick={() => void startNewChat(project.worktree)}
                         >
                           <IconV2 name="edit" size="small" />
                         </button>
@@ -235,7 +251,7 @@ export default function NewLayout(props: ParentProps) {
                           <button
                             type="button"
                             class="flex h-8 items-center gap-2 rounded-lg px-2 text-left text-[13px] text-[#9caa87] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-[#dce5ce] motion-reduce:transition-none"
-                            onClick={() => startNewChat(project.worktree)}
+                            onClick={() => void startNewChat(project.worktree)}
                           >
                             <span class="text-base leading-none">＋</span> Новый чат
                           </button>
@@ -305,7 +321,7 @@ export default function NewLayout(props: ParentProps) {
                     const directory = await window.api?.openDirectoryPicker({
                       title: "Выберите рабочую папку для Джарвиса",
                     })
-                    if (typeof directory === "string") startNewChat(directory)
+                    if (typeof directory === "string") void startNewChat(directory)
                   }}
                 >
                   Открыть папку на Mac
@@ -313,7 +329,7 @@ export default function NewLayout(props: ParentProps) {
               </Show>
             </div>
 
-            <Show when={state.agent === "cloud" ? personalProject() : undefined} keyed>
+            <Show when={personalProject()} keyed>
               {(project) => {
                 const slug = base64Encode(project.worktree)
                 const [projectStore] = serverSync().child(project.worktree)

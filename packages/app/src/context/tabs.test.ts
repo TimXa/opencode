@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, getOwner, onCleanup } from "solid-js"
 import { createTabMemory } from "./tab-memory"
 import { nextTabAfterClose, pushClosedTab, removeClosedTabs, takeClosedTab, type ClosedTab } from "./closed-tabs"
-import type { SessionTab, Tab } from "./tabs"
+import { tabKey, tabToResume, type SessionTab, type Tab } from "./tabs"
 import { migrateTabs } from "./tab-migration"
 import type { ServerConnection } from "./server"
 
@@ -26,6 +26,18 @@ describe("tab migration", () => {
   test("replaces invalid top-level persisted data", () => {
     expect(migrateTabs(null, server)).toEqual([])
     expect(migrateTabs({}, server)).toEqual([])
+  })
+})
+
+describe("tab resume", () => {
+  test("resumes the remembered tab", () => {
+    const tabs = [sessionTab("older"), sessionTab("remembered"), sessionTab("newer")]
+    expect(tabToResume(tabs, tabKey(tabs[1]))).toEqual(sessionTab("remembered"))
+  })
+
+  test("falls back to the newest open tab and handles an empty window", () => {
+    expect(tabToResume([sessionTab("older"), sessionTab("newer")])).toEqual(sessionTab("newer"))
+    expect(tabToResume([])).toBeUndefined()
   })
 })
 

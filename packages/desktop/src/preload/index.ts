@@ -18,6 +18,7 @@ const api: ElectronAPI = {
     logout: () => ipcRenderer.invoke("primekit-auth-logout"),
     requestComputerAccess: () => ipcRenderer.invoke("primekit-computer-access-request"),
     speechWebSocketConfig: () => ipcRenderer.invoke("primekit-speech-websocket-config"),
+    jarvisWorkspace: () => ipcRenderer.invoke("primekit-jarvis-workspace"),
   },
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),

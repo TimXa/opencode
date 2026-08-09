@@ -280,7 +280,10 @@ declare global {
           user?: { id: string; email?: string | null; display_name?: string | null; photo_url?: string | null }
         }>
         requestEmailCode: (email: string) => Promise<{ status: string; email: string }>
-        verifyEmailCode: (email: string, code: string) => Promise<{
+        verifyEmailCode: (
+          email: string,
+          code: string,
+        ) => Promise<{
           id: string
           email?: string | null
           display_name?: string | null
@@ -298,6 +301,7 @@ declare global {
           fallbackURL: string
           primaryReady: boolean
         }>
+        jarvisWorkspace: () => Promise<string>
       }
     }
   }

@@ -18,6 +18,7 @@ import { requestPrimeKitFullDeviceAccess } from "./primekit-access"
 import { setPrimeKitComputerPermissionState } from "./primekit-access"
 import type { PrimeKitComputerProbe } from "./primekit-computer-mcp"
 import { getPrimeKitSpeechWebSocketConfig } from "./primekit-speech"
+import { ensurePrimeKitJarvisWorkspace } from "./primekit-jarvis-workspace"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -62,6 +63,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
   ipcMain.handle("primekit-auth-logout", () => primeKitAccount.logout())
   ipcMain.handle("primekit-speech-websocket-config", () => getPrimeKitSpeechWebSocketConfig())
+  ipcMain.handle("primekit-jarvis-workspace", () => ensurePrimeKitJarvisWorkspace())
   ipcMain.handle("primekit-computer-access-request", async () => {
     const access = await requestPrimeKitFullDeviceAccess(true)
     if (access !== "full_device") {

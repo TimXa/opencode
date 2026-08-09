@@ -67,6 +67,7 @@ export type ElectronAPI = {
     logout: () => Promise<void>
     requestComputerAccess: () => Promise<PrimeKitComputerAccess>
     speechWebSocketConfig: () => Promise<PrimeKitSpeechWebSocketConfig>
+    jarvisWorkspace: () => Promise<string>
   }
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
