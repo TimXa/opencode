@@ -54,8 +54,19 @@ export const childSessionOnPath = (sessions: Session[] | undefined, rootID: stri
   }
 }
 
-export const displayName = (project: { name?: string; worktree: string }) =>
-  project.name || getFilename(project.worktree) || project.worktree
+export const displayName = (
+  project: { name?: string; worktree: string },
+  primekit = typeof window === "object" && Boolean(window.api?.primekit),
+) => {
+  const value = project.name || getFilename(project.worktree) || project.worktree
+  if (!primekit) return value
+  return (
+    value
+      .replace(/[-_\s]*open[-_\s]*code/gi, "")
+      .replace(/[-_\s]*codex/gi, "")
+      .replace(/[-_\s]+$/g, "") || "Проект"
+  )
+}
 
 export function toggleHomeProjectSelection(
   current: HomeProjectSelection | undefined,

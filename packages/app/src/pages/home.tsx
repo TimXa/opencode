@@ -7,8 +7,10 @@ import { createHomeScrollController } from "./home/home-scroll-controller"
 import { createHomeSessionSearchController } from "./home/home-session-search-controller"
 import { createHomeSessionsController } from "./home/home-sessions-controller"
 import { HomeSessions } from "./home/home-sessions"
+import { Show } from "solid-js"
 
 export function NewHome() {
+  const primekit = Boolean(window.api?.primekit)
   const home = createHomeController()
   const projects = createHomeProjectsController(home)
   const sessions = createHomeSessionsController(home)
@@ -16,10 +18,11 @@ export function NewHome() {
   const scroll = createHomeScrollController(sessions.data.groups)
   return (
     <div
-      class={`
-        m-2 min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px]
-        bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]
-      `}
+      data-kit-home={primekit ? "" : undefined}
+      classList={{
+        "min-h-0 flex-1 self-stretch overflow-hidden bg-v2-background-bg-base": true,
+        "m-2 rounded-[10px] shadow-[var(--v2-elevation-raised)]": !primekit,
+      }}
     >
       <ScrollView
         class="h-full [container-type:size]"
@@ -30,19 +33,36 @@ export function NewHome() {
         onWheel={scroll.viewport.containOuterWheel}
       >
         <div
-          class={`
-            mx-auto grid min-h-full w-full max-w-[1080px] grid-rows-[auto_minmax(0,1fr)_auto] gap-4 px-3
-            lg:grid-cols-[280px_minmax(0,720px)] lg:grid-rows-1 lg:gap-8 lg:px-6
-          `}
+          classList={{
+            "mx-auto min-h-full w-full px-3": true,
+            "grid max-w-[1080px] grid-rows-[auto_minmax(0,1fr)_auto] gap-4 lg:grid-cols-[280px_minmax(0,720px)] lg:grid-rows-1 lg:gap-8 lg:px-6":
+              !primekit,
+            "flex max-w-[760px] flex-col px-6": primekit,
+          }}
         >
-          <HomeProjects projects={projects} scroll={scroll} />
+          <Show when={!primekit}>
+            <HomeProjects projects={projects} scroll={scroll} />
+          </Show>
+          <Show when={primekit}>
+            <header data-kit-home-intro class="shrink-0 pt-12 pb-2">
+              <p class="text-[12px] font-semibold uppercase tracking-[0.08em] text-v2-text-text-muted">Кит</p>
+              <h1 class="mt-2 text-[24px] font-semibold tracking-[-0.025em] text-v2-text-text-strong">
+                Продолжить работу
+              </h1>
+              <p class="mt-1 max-w-[58ch] text-[14px] leading-6 text-v2-text-text-muted">
+                Выберите недавний чат или начните новую задачу для Джарвиса.
+              </p>
+            </header>
+          </Show>
           <HomeSessions sessions={sessions} search={search} scroll={scroll} />
-          <HomeUtilityNav
-            class="flex lg:hidden"
-            onOpenSettings={projects.utility.settings}
-            onOpenHelp={projects.utility.help}
-            language={projects.copy.language}
-          />
+          <Show when={!primekit}>
+            <HomeUtilityNav
+              class="flex lg:hidden"
+              onOpenSettings={projects.utility.settings}
+              onOpenHelp={projects.utility.help}
+              language={projects.copy.language}
+            />
+          </Show>
         </div>
       </ScrollView>
     </div>

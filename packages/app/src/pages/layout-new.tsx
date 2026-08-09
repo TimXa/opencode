@@ -43,16 +43,18 @@ export default function NewLayout(props: ParentProps) {
   })
 
   const projects = createMemo(() => layout.projects.list())
-  const personalProject = createMemo(
-    () => projects().find((project) => project.id === "primekit-personal"),
-  )
+  const personalProject = createMemo(() => projects().find((project) => project.id === "primekit-personal"))
   const cloudProject = (id?: string) => id === "primekit-personal" || id?.startsWith("primekit-space-") === true
   const visibleProjects = createMemo(() =>
     projects().filter((project) =>
-      state.agent === "cloud" ? cloudProject(project.id) && project.id !== "primekit-personal" : !cloudProject(project.id),
+      state.agent === "cloud"
+        ? cloudProject(project.id) && project.id !== "primekit-personal"
+        : !cloudProject(project.id),
     ),
   )
-  const startNewChat = (worktree = state.agent === "cloud" ? personalProject()?.worktree : visibleProjects()[0]?.worktree) => {
+  const startNewChat = (
+    worktree = state.agent === "cloud" ? personalProject()?.worktree : visibleProjects()[0]?.worktree,
+  ) => {
     if (!worktree) return
     navigate(`/${base64Encode(worktree)}/session`)
   }
@@ -61,6 +63,15 @@ export default function NewLayout(props: ParentProps) {
     if (agent === "cowork") await window.api?.primekit?.requestComputerAccess()
     const project = agent === "cloud" ? personalProject() : projects().find((item) => !cloudProject(item.id))
     if (project) navigate(`/${base64Encode(project.worktree)}/session`)
+  }
+  const agents = [
+    { id: "cloud" as const, label: "Облако", description: "Чаты и пространства Кита" },
+    { id: "cowork" as const, label: "Джарвис", description: "Работа с файлами и приложениями Mac" },
+  ]
+  const selectAdjacentAgent = (event: KeyboardEvent, agent: "cloud" | "cowork") => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+    event.preventDefault()
+    void selectAgent(agent === "cloud" ? "cowork" : "cloud")
   }
   const accountName = createMemo(() => {
     const user = account()?.user
@@ -92,6 +103,7 @@ export default function NewLayout(props: ParentProps) {
 
   return (
     <div
+      data-kit-shell
       class="relative bg-v2-background-bg-deep flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
       style={{
         "padding-top": "env(safe-area-inset-top, 0px)",
@@ -99,35 +111,57 @@ export default function NewLayout(props: ParentProps) {
       }}
     >
       <div class="flex min-h-0 min-w-0 flex-1">
-        <aside class="flex w-[clamp(260px,22vw,320px)] shrink-0 flex-col overflow-hidden bg-[#3d372e] text-[#f3f0e8]">
+        <aside
+          data-kit-sidebar
+          class="flex w-[clamp(260px,22vw,320px)] shrink-0 flex-col overflow-hidden bg-[#3d372e] text-[#f3f0e8]"
+        >
           <div class="shrink-0 px-4 pb-3 pt-10 [-webkit-app-region:drag]">
             <div class="flex h-9 items-center justify-between [-webkit-app-region:no-drag]">
               <div class="flex min-w-0 items-center px-1.5 py-1">
-                <span class="truncate text-[18px] font-semibold tracking-[-0.02em]">Кит</span>
+                <span data-kit-brand class="truncate text-[18px] font-semibold tracking-[-0.02em]">
+                  Кит
+                </span>
               </div>
               <div class="flex items-center gap-1">
-                <IconButton icon="magnifying-glass" variant="ghost" size="large" aria-label="Поиск" onClick={() => navigate("/")} />
+                <IconButton
+                  icon="magnifying-glass"
+                  variant="ghost"
+                  size="large"
+                  aria-label="Поиск"
+                  onClick={() => navigate("/")}
+                />
               </div>
             </div>
             <button
               type="button"
+              data-kit-primary-action
               class="mt-3 flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[14px] font-medium text-white/90 transition-colors hover:bg-[rgba(255,255,255,0.09)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none [-webkit-app-region:no-drag]"
               onClick={() => startNewChat()}
             >
               <IconV2 name="edit" size="small" />
               Новый чат
             </button>
-            <div class="mt-2 grid grid-cols-2 rounded-lg bg-black/15 p-0.5 [-webkit-app-region:no-drag]">
-              <For each={[{ id: "cloud" as const, label: "Облако" }, { id: "cowork" as const, label: "Cowork" }]}>
+            <div
+              data-kit-mode-switch
+              role="tablist"
+              aria-label="Режим работы"
+              class="mt-2 grid grid-cols-2 rounded-lg bg-black/15 p-0.5 [-webkit-app-region:no-drag]"
+            >
+              <For each={agents}>
                 {(item) => (
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={state.agent === item.id}
+                    aria-label={`${item.label}. ${item.description}`}
+                    data-kit-mode-tab
                     classList={{
                       "h-8 rounded-md text-[13px] font-medium transition-colors": true,
                       "bg-white/12 text-white": state.agent === item.id,
                       "text-white/50 hover:text-white/80": state.agent !== item.id,
                     }}
                     onClick={() => void selectAgent(item.id)}
+                    onKeyDown={(event) => selectAdjacentAgent(event, item.id)}
                   >
                     {item.label}
                   </button>
@@ -138,8 +172,11 @@ export default function NewLayout(props: ParentProps) {
 
           <div class="mx-4 h-px shrink-0 bg-[rgba(255,255,255,0.08)]" />
           <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-4 no-scrollbar">
-            <div class="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
-              {state.agent === "cloud" ? "Пространства" : "Проекты на Mac"}
+            <div
+              data-kit-section-label
+              class="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40"
+            >
+              {state.agent === "cloud" ? "Пространства" : "Рабочие папки"}
             </div>
             <div class="flex flex-col gap-1">
               <For each={visibleProjects()}>
@@ -153,6 +190,7 @@ export default function NewLayout(props: ParentProps) {
                   return (
                     <section class="group/project min-w-0">
                       <div
+                        data-kit-project-row
                         classList={{
                           "flex h-11 w-full min-w-0 items-center gap-2 rounded-xl px-2 text-left transition-colors motion-reduce:transition-none": true,
                           "bg-[rgba(255,255,255,0.11)] text-white": selected(),
@@ -206,17 +244,40 @@ export default function NewLayout(props: ParentProps) {
                               <div
                                 classList={{
                                   "group/chat flex h-8 min-w-0 items-center rounded-lg px-2 text-[13px] transition-colors motion-reduce:transition-none": true,
-                                  "bg-[rgba(255,255,255,0.12)] text-white": location.pathname.endsWith(`/session/${session.id}`),
-                                  "text-white/65 hover:bg-[rgba(255,255,255,0.08)] hover:text-white": !location.pathname.endsWith(`/session/${session.id}`),
+                                  "bg-[rgba(255,255,255,0.12)] text-white": location.pathname.endsWith(
+                                    `/session/${session.id}`,
+                                  ),
+                                  "text-white/65 hover:bg-[rgba(255,255,255,0.08)] hover:text-white":
+                                    !location.pathname.endsWith(`/session/${session.id}`),
                                 }}
                               >
-                                <button type="button" class="min-w-0 flex-1 truncate text-left" onClick={() => navigate(`/${slug}/session/${session.id}`)}>
+                                <button
+                                  type="button"
+                                  class="min-w-0 flex-1 truncate text-left"
+                                  onClick={() => navigate(`/${slug}/session/${session.id}`)}
+                                >
                                   {sessionTitle(session.title)}
                                 </button>
-                                <span class="shrink-0 text-[11px] text-white/35 group-hover/chat:hidden">{compactAge(session.time.created)}</span>
+                                <span class="shrink-0 text-[11px] text-white/35 group-hover/chat:hidden">
+                                  {compactAge(session.time.created)}
+                                </span>
                                 <div class="hidden shrink-0 items-center group-hover/chat:flex">
-                                  <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white" aria-label="Переименовать" onClick={() => void renameChat(session)}><IconV2 name="edit" size="small" /></button>
-                                  <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300" aria-label="Удалить" onClick={() => void removeChat(session)}><IconV2 name="trash" size="small" /></button>
+                                  <button
+                                    type="button"
+                                    class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white"
+                                    aria-label="Переименовать"
+                                    onClick={() => void renameChat(session)}
+                                  >
+                                    <IconV2 name="edit" size="small" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300"
+                                    aria-label="Удалить"
+                                    onClick={() => void removeChat(session)}
+                                  >
+                                    <IconV2 name="trash" size="small" />
+                                  </button>
                                 </div>
                               </div>
                             )}
@@ -241,7 +302,9 @@ export default function NewLayout(props: ParentProps) {
                   type="button"
                   class="rounded-lg border border-white/10 px-3 py-3 text-left text-[13px] text-white/65 hover:bg-white/8 hover:text-white"
                   onClick={async () => {
-                    const directory = await window.api?.openDirectoryPicker({ title: "Выберите папку для Cowork" })
+                    const directory = await window.api?.openDirectoryPicker({
+                      title: "Выберите рабочую папку для Джарвиса",
+                    })
                     if (typeof directory === "string") startNewChat(directory)
                   }}
                 >
@@ -271,23 +334,71 @@ export default function NewLayout(props: ParentProps) {
                           <div
                             classList={{
                               "group/chat flex h-9 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors motion-reduce:transition-none": true,
-                              "bg-[rgba(255,255,255,0.13)] text-white": location.pathname.endsWith(`/session/${session.id}`),
-                              "text-white/72 hover:bg-[rgba(255,255,255,0.09)] hover:text-white": !location.pathname.endsWith(`/session/${session.id}`),
+                              "bg-[rgba(255,255,255,0.13)] text-white": location.pathname.endsWith(
+                                `/session/${session.id}`,
+                              ),
+                              "text-white/72 hover:bg-[rgba(255,255,255,0.09)] hover:text-white":
+                                !location.pathname.endsWith(`/session/${session.id}`),
                             }}
                           >
                             <Show when={isPinned(session)} fallback={<span class="size-4 shrink-0" />}>
-                              <svg viewBox="0 0 20 20" class="size-4 shrink-0 text-white/55" fill="none" aria-hidden="true">
-                                <path d="m7 3 6 6m-4.8-4.8L5.7 6.7l1.6 1.6-3.2 4.4 3.2 3.2 4.4-3.2 1.6 1.6 2.5-2.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" />
+                              <svg
+                                viewBox="0 0 20 20"
+                                class="size-4 shrink-0 text-white/55"
+                                fill="none"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="m7 3 6 6m-4.8-4.8L5.7 6.7l1.6 1.6-3.2 4.4 3.2 3.2 4.4-3.2 1.6 1.6 2.5-2.5"
+                                  stroke="currentColor"
+                                  stroke-width="1.35"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                />
                               </svg>
                             </Show>
-                            <button type="button" class="min-w-0 flex-1 truncate text-left" onClick={() => navigate(`/${slug}/session/${session.id}`)}>{sessionTitle(session.title)}</button>
-                            <span class="shrink-0 text-[11px] text-white/35 group-hover/chat:hidden">{compactAge(session.time.created)}</span>
+                            <button
+                              type="button"
+                              class="min-w-0 flex-1 truncate text-left"
+                              onClick={() => navigate(`/${slug}/session/${session.id}`)}
+                            >
+                              {sessionTitle(session.title)}
+                            </button>
+                            <span class="shrink-0 text-[11px] text-white/35 group-hover/chat:hidden">
+                              {compactAge(session.time.created)}
+                            </span>
                             <div class="hidden shrink-0 items-center group-hover/chat:flex">
-                              <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white" aria-label={isPinned(session) ? "Открепить" : "Закрепить"} onClick={() => void pinChat(session)}>
-                                <svg viewBox="0 0 20 20" class="size-3.5" fill="none" aria-hidden="true"><path d="m7 3 6 6-2 1 3 3-1 1-3-3-1 2-6-6 4-4Z" stroke="currentColor" stroke-linejoin="round"/><path d="m7.5 12.5-4 4" stroke="currentColor" stroke-linecap="round"/></svg>
+                              <button
+                                type="button"
+                                class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white"
+                                aria-label={isPinned(session) ? "Открепить" : "Закрепить"}
+                                onClick={() => void pinChat(session)}
+                              >
+                                <svg viewBox="0 0 20 20" class="size-3.5" fill="none" aria-hidden="true">
+                                  <path
+                                    d="m7 3 6 6-2 1 3 3-1 1-3-3-1 2-6-6 4-4Z"
+                                    stroke="currentColor"
+                                    stroke-linejoin="round"
+                                  />
+                                  <path d="m7.5 12.5-4 4" stroke="currentColor" stroke-linecap="round" />
+                                </svg>
                               </button>
-                              <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white" aria-label="Переименовать" onClick={() => void renameChat(session)}><IconV2 name="edit" size="small" /></button>
-                              <button type="button" class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300" aria-label="Удалить" onClick={() => void removeChat(session)}><IconV2 name="trash" size="small" /></button>
+                              <button
+                                type="button"
+                                class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white"
+                                aria-label="Переименовать"
+                                onClick={() => void renameChat(session)}
+                              >
+                                <IconV2 name="edit" size="small" />
+                              </button>
+                              <button
+                                type="button"
+                                class="flex size-6 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-red-300"
+                                aria-label="Удалить"
+                                onClick={() => void removeChat(session)}
+                              >
+                                <IconV2 name="trash" size="small" />
+                              </button>
                             </div>
                           </div>
                         )}
@@ -308,7 +419,7 @@ export default function NewLayout(props: ParentProps) {
             </Show>
           </div>
 
-          <div class="shrink-0 border-t border-white/8 p-2">
+          <div data-kit-profile class="shrink-0 border-t border-white/8 p-2">
             <button
               type="button"
               class="flex h-12 w-full min-w-0 items-center gap-3 rounded-xl px-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.09)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
@@ -324,7 +435,10 @@ export default function NewLayout(props: ParentProps) {
             </button>
           </div>
         </aside>
-        <main class="min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col items-start contain-strict border-t border-white/8 bg-v2-background-bg-deep rounded-tl-[12px]">
+        <main
+          data-kit-main
+          class="min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col items-start contain-strict border-t border-white/8 bg-v2-background-bg-deep rounded-tl-[12px]"
+        >
           <Suspense>{props.children}</Suspense>
         </main>
       </div>

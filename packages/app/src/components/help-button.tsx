@@ -13,6 +13,7 @@ const showPopover = () => true
 
 // can remove this after the tabs rollout has been out for a while
 export function TabsInfoPopup() {
+  if (window.api?.primekit) return null
   const settings = useSettings()
   const platform = usePlatform()
   const [drawerOpen, setDrawerOpen] = createSignal(false)

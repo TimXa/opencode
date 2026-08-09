@@ -367,61 +367,61 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                     <WindowsAppMenu command={command} platform={platform} variant="v2" />
                   </Show>
                   <TooltipV2
-                  placement="bottom"
-                  value={
-                    <>
-                      {language.t("home.title")}
-                      <KeybindV2 keys={command.keybindParts("home.toggle")} variant="neutral" />
-                    </>
-                  }
-                  class="shrink-0"
-                >
-                  <IconButtonV2
-                    type="button"
-                    variant="ghost-muted"
-                    size="large"
-                    class="!w-9 shrink-0"
-                    icon={<IconV2 name="grid-plus" />}
-                    state={layout.route().type === "home" ? "pressed" : undefined}
-                    onClick={toggleHome}
-                    aria-label={language.t("home.title")}
-                    aria-pressed={layout.route().type === "home"}
-                  />
+                    placement="bottom"
+                    value={
+                      <>
+                        {language.t("home.title")}
+                        <KeybindV2 keys={command.keybindParts("home.toggle")} variant="neutral" />
+                      </>
+                    }
+                    class="shrink-0"
+                  >
+                    <IconButtonV2
+                      type="button"
+                      variant="ghost-muted"
+                      size="large"
+                      class="!w-9 shrink-0"
+                      icon={<IconV2 name="grid-plus" />}
+                      state={layout.route().type === "home" ? "pressed" : undefined}
+                      onClick={toggleHome}
+                      aria-label={language.t("home.title")}
+                      aria-pressed={layout.route().type === "home"}
+                    />
                   </TooltipV2>
 
                   <TitlebarTabStrip
-                  tabs={tabsStore}
-                  currentTab={currentTab}
-                  forceTruncate={tabsAreOverflowing()}
-                  onOverflowChange={setTabsAreOverflowing}
-                  onNavigate={(tab, el) => {
-                    tabs.select(tab)
-                    el?.scrollIntoView({ behavior: "instant" })
-                  }}
-                  onClose={(tab) => {
-                    const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
-                    if (index !== -1) tabsStoreActions.closeTab(index)
-                  }}
-                  onReorder={(keys) => tabsStoreActions.reorder(keys)}
+                    tabs={tabsStore}
+                    currentTab={currentTab}
+                    forceTruncate={tabsAreOverflowing()}
+                    onOverflowChange={setTabsAreOverflowing}
+                    onNavigate={(tab, el) => {
+                      tabs.select(tab)
+                      el?.scrollIntoView({ behavior: "instant" })
+                    }}
+                    onClose={(tab) => {
+                      const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
+                      if (index !== -1) tabsStoreActions.closeTab(index)
+                    }}
+                    onReorder={(keys) => tabsStoreActions.reorder(keys)}
                   />
                   <TooltipV2
-                  placement="bottom"
-                  value={
-                    <>
-                      {language.t("command.session.new")}
-                      <KeybindV2 keys={newTabTooltipKeybind(command)} variant="neutral" />
-                    </>
-                  }
-                >
-                  <IconButtonV2
-                    type="button"
-                    variant="ghost-muted"
-                    size="large"
-                    class="shrink-0"
-                    icon={<IconV2 name="plus" />}
-                    onClick={openNewTab}
-                    aria-label={language.t("command.session.new")}
-                  />
+                    placement="bottom"
+                    value={
+                      <>
+                        {language.t("command.session.new")}
+                        <KeybindV2 keys={newTabTooltipKeybind(command)} variant="neutral" />
+                      </>
+                    }
+                  >
+                    <IconButtonV2
+                      type="button"
+                      variant="ghost-muted"
+                      size="large"
+                      class="shrink-0"
+                      icon={<IconV2 name="plus" />}
+                      onClick={openNewTab}
+                      aria-label={language.t("command.session.new")}
+                    />
                   </TooltipV2>
                   <div class="flex-1" />
                   <TitlebarV2Right state={v2RightState()} />
@@ -622,7 +622,7 @@ function TitlebarUpdateIconButton(props: { state: TitlebarUpdatePillState }) {
         aria-busy={props.state.installing}
         aria-label={props.state.ariaLabel}
       >
-        <span class="shrink-0 ml-[8px] mr-px text-[11px] text-v2-text-text-accent [font-weight:530] opacity-0 translate-x-2 motion-safe:transition-all duration-150 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-focus-within:opacity-100 group-focus-within:translate-x-0 motion-reduce:translate-x-0">
+        <span class="shrink-0 ml-[8px] mr-px text-[11px] text-v2-text-text-accent [font-weight:530] opacity-0 translate-x-2 motion-safe:transition-[opacity,transform] duration-150 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-focus-within:opacity-100 group-focus-within:translate-x-0 motion-reduce:translate-x-0">
           Update
         </span>
         <span class="flex size-5 shrink-0 items-center justify-center">

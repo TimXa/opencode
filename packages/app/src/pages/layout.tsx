@@ -2267,12 +2267,12 @@ export default function LegacyLayout(props: ParentProps) {
     if (/^https?:\/\//.test(value)) return value
     return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
   })
-  const personalProject = createMemo(
-    () => projects().find((project) => project.id === "primekit-personal"),
-  )
+  const personalProject = createMemo(() => projects().find((project) => project.id === "primekit-personal"))
   const cloudProject = (id?: string) => id === "primekit-personal" || id?.startsWith("primekit-space-") === true
   const visibleProjects = createMemo(() =>
-    projects().filter((project) => (store.primeKitAgent === "cloud" ? cloudProject(project.id) : !cloudProject(project.id))),
+    projects().filter((project) =>
+      store.primeKitAgent === "cloud" ? cloudProject(project.id) : !cloudProject(project.id),
+    ),
   )
   const startNewChat = (project = store.primeKitAgent === "cloud" ? personalProject() : visibleProjects()[0]) => {
     if (!project) return
@@ -2284,8 +2284,17 @@ export default function LegacyLayout(props: ParentProps) {
     const project = agent === "cloud" ? personalProject() : projects().find((item) => !cloudProject(item.id))
     if (project) navigateWithSidebarReset(`/${base64Encode(project.worktree)}/session`)
   }
+  const primeKitAgents = [
+    { id: "cloud" as const, label: "Облако", description: "Чаты и пространства Кита" },
+    { id: "cowork" as const, label: "Джарвис", description: "Работа с файлами и приложениями Mac" },
+  ]
+  const selectAdjacentPrimeKitAgent = (event: KeyboardEvent, agent: "cloud" | "cowork") => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+    event.preventDefault()
+    void selectPrimeKitAgent(agent === "cloud" ? "cowork" : "cloud")
+  }
   const primeKitSidebar = (mobile?: boolean) => (
-    <aside class="flex h-full w-full min-w-0 flex-col bg-[#3d372e] text-[#f3f0e8]">
+    <aside data-kit-sidebar class="flex h-full w-full min-w-0 flex-col bg-[#3d372e] text-[#f3f0e8]">
       <div class="shrink-0 px-4 pb-3 pt-4">
         <div class="flex h-9 items-center justify-between">
           <button
@@ -2293,37 +2302,65 @@ export default function LegacyLayout(props: ParentProps) {
             class="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-white/7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
             onClick={() => navigate("/")}
           >
-            <span class="truncate text-[18px] font-semibold tracking-[-0.02em]">Кит</span>
+            <span data-kit-brand class="truncate text-[18px] font-semibold tracking-[-0.02em]">
+              Кит
+            </span>
             <IconV2 name="chevron-down" size="small" class="text-white/45" />
           </button>
           <div class="flex items-center gap-1">
-            <IconButton icon="magnifying-glass" variant="ghost" size="large" aria-label="Поиск" onClick={() => navigate("/")} />
-            <button type="button" class="flex size-8 items-center justify-center rounded-lg text-white/45 hover:bg-white/8 hover:text-white/80" aria-label="Уведомления">
+            <IconButton
+              icon="magnifying-glass"
+              variant="ghost"
+              size="large"
+              aria-label="Поиск"
+              onClick={() => navigate("/")}
+            />
+            <button
+              type="button"
+              class="flex size-8 items-center justify-center rounded-lg text-white/45 hover:bg-white/8 hover:text-white/80"
+              aria-label="Уведомления"
+            >
               <svg viewBox="0 0 20 20" class="size-4" fill="none" aria-hidden="true">
-                <path d="M6.25 8.1a3.75 3.75 0 0 1 7.5 0v2.15c0 1.1.42 2.16 1.18 2.96l.32.34H4.75l.32-.34a4.3 4.3 0 0 0 1.18-2.96V8.1ZM8.25 15.2c.3.8.9 1.2 1.75 1.2s1.45-.4 1.75-1.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+                <path
+                  d="M6.25 8.1a3.75 3.75 0 0 1 7.5 0v2.15c0 1.1.42 2.16 1.18 2.96l.32.34H4.75l.32-.34a4.3 4.3 0 0 0 1.18-2.96V8.1ZM8.25 15.2c.3.8.9 1.2 1.75 1.2s1.45-.4 1.75-1.2"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
             </button>
           </div>
         </div>
         <button
           type="button"
+          data-kit-primary-action
           class="mt-3 flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-[14px] font-medium text-white/90 transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
           onClick={() => startNewChat()}
         >
           <IconV2 name="edit" size="small" />
           Новый чат
         </button>
-        <div class="mt-2 grid grid-cols-2 rounded-lg bg-black/15 p-0.5">
-          <For each={[{ id: "cloud" as const, label: "Облако" }, { id: "cowork" as const, label: "Cowork" }]}>
+        <div
+          data-kit-mode-switch
+          role="tablist"
+          aria-label="Режим работы"
+          class="mt-2 grid grid-cols-2 rounded-lg bg-black/15 p-0.5"
+        >
+          <For each={primeKitAgents}>
             {(item) => (
               <button
                 type="button"
+                role="tab"
+                aria-selected={store.primeKitAgent === item.id}
+                aria-label={`${item.label}. ${item.description}`}
+                data-kit-mode-tab
                 classList={{
                   "h-8 rounded-md text-[13px] font-medium transition-colors": true,
                   "bg-white/12 text-white": store.primeKitAgent === item.id,
                   "text-white/50 hover:text-white/80": store.primeKitAgent !== item.id,
                 }}
                 onClick={() => void selectPrimeKitAgent(item.id)}
+                onKeyDown={(event) => selectAdjacentPrimeKitAgent(event, item.id)}
               >
                 {item.label}
               </button>
@@ -2334,8 +2371,8 @@ export default function LegacyLayout(props: ParentProps) {
 
       <div class="mx-4 h-px shrink-0 bg-white/7" />
       <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-4 no-scrollbar">
-        <div class="px-2 pb-2 text-[12px] font-medium text-white/38">
-          {store.primeKitAgent === "cloud" ? "Облачные чаты" : "Проекты на Mac"}
+        <div data-kit-section-label class="px-2 pb-2 text-[12px] font-medium text-white/38">
+          {store.primeKitAgent === "cloud" ? "Облачные чаты" : "Рабочие папки"}
         </div>
         <div class="flex flex-col gap-2">
           <For each={visibleProjects()}>
@@ -2347,6 +2384,7 @@ export default function LegacyLayout(props: ParentProps) {
               return (
                 <section class="group/project min-w-0">
                   <div
+                    data-kit-project-row
                     classList={{
                       "flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none": true,
                       "bg-white/10 text-white": selected(),
@@ -2417,7 +2455,7 @@ export default function LegacyLayout(props: ParentProps) {
         </div>
       </div>
 
-      <div class="shrink-0 border-t border-white/8 p-2">
+      <div data-kit-profile class="shrink-0 border-t border-white/8 p-2">
         <button
           type="button"
           class="flex h-12 w-full min-w-0 items-center gap-3 rounded-xl px-2 text-left transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
@@ -2439,12 +2477,13 @@ export default function LegacyLayout(props: ParentProps) {
       </div>
     </aside>
   )
-  const sidebarContent = (mobile?: boolean) => (
-    primeKitSidebar(mobile)
-  )
+  const sidebarContent = (mobile?: boolean) => primeKitSidebar(mobile)
 
   return (
-    <div class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
+    <div
+      data-kit-shell
+      class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
+    >
       {autoselecting() ?? ""}
       <Titlebar
         update={titlebarUpdate}
@@ -2549,6 +2588,7 @@ export default function LegacyLayout(props: ParentProps) {
               }}
             >
               <main
+                data-kit-main
                 classList={{
                   "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
                 }}

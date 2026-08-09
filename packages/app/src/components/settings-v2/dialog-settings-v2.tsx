@@ -75,36 +75,34 @@ export const DialogSettings: Component<{
                         Аккаунт
                       </TabsV2.Trigger>
                     </Show>
-                    <Show when={!primekit}>
-                      <TabsV2.Trigger value="general">
-                        <Icon name="sliders" />
-                        {language.t("settings.tab.general")}
-                      </TabsV2.Trigger>
-                      <TabsV2.Trigger value="shortcuts">
-                        <Icon name="keyboard" />
-                        {language.t("settings.tab.shortcuts")}
-                      </TabsV2.Trigger>
-                    </Show>
+                    <TabsV2.Trigger value="general">
+                      <Icon name="sliders" />
+                      {language.t("settings.tab.general")}
+                    </TabsV2.Trigger>
+                    <TabsV2.Trigger value="shortcuts">
+                      <Icon name="keyboard" />
+                      {language.t("settings.tab.shortcuts")}
+                    </TabsV2.Trigger>
                   </div>
                 </div>
 
                 <Show when={!primekit}>
                   <div class="flex flex-col gap-1.5">
-                  <TabsV2.SectionTitle>{language.t("settings.section.server")}</TabsV2.SectionTitle>
-                  <div class="flex flex-col gap-1.5 w-full">
-                    <TabsV2.Trigger value="servers">
-                      <Icon name="server" />
-                      {language.t("status.popover.tab.servers")}
-                    </TabsV2.Trigger>
-                    <TabsV2.Trigger value="providers">
-                      <Icon name="providers" />
-                      {language.t("settings.providers.title")}
-                    </TabsV2.Trigger>
-                    <TabsV2.Trigger value="models">
-                      <Icon name="models" />
-                      {language.t("settings.models.title")}
-                    </TabsV2.Trigger>
-                  </div>
+                    <TabsV2.SectionTitle>{language.t("settings.section.server")}</TabsV2.SectionTitle>
+                    <div class="flex flex-col gap-1.5 w-full">
+                      <TabsV2.Trigger value="servers">
+                        <Icon name="server" />
+                        {language.t("status.popover.tab.servers")}
+                      </TabsV2.Trigger>
+                      <TabsV2.Trigger value="providers">
+                        <Icon name="providers" />
+                        {language.t("settings.providers.title")}
+                      </TabsV2.Trigger>
+                      <TabsV2.Trigger value="models">
+                        <Icon name="models" />
+                        {language.t("settings.models.title")}
+                      </TabsV2.Trigger>
+                    </div>
                   </div>
                 </Show>
               </div>

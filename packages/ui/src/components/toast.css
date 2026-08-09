@@ -38,7 +38,9 @@
   max-height: min(420px, calc(100dvh - 96px));
   overflow: hidden;
   pointer-events: auto;
-  transition: all 150ms ease-out;
+  transition-property: transform, opacity, background-color, border-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
 
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-weak-base);

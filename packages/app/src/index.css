@@ -2,18 +2,12 @@
 @import "@opencode-ai/session-ui/styles";
 @import "@opencode-ai/ui/v2/styles/tailwind.css";
 @import "tw-animate-css";
+@import "./kit-shell.css";
 
 @font-face {
   font-family: "JetBrainsMono Nerd Font Mono";
   src: url("/assets/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
   font-weight: normal;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("/assets/Inter.ttf") format("truetype");
-  font-weight: 100 900;
   font-style: normal;
 }
 

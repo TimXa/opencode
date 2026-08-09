@@ -215,10 +215,20 @@ export const { use: useLanguage, provider: LanguageProvider } = createSimpleCont
       initialValue: dicts.get(initial) ?? base,
     })
 
-    const t = i18n.translator(() => dict() ?? base, i18n.resolveTemplate) as (
+    const translate = i18n.translator(() => dict() ?? base, i18n.resolveTemplate) as (
       key: keyof Dictionary,
       params?: Record<string, string | number | boolean>,
     ) => string
+    const t = (key: keyof Dictionary, params?: Record<string, string | number | boolean>) => {
+      const value = translate(key, params)
+      if (typeof window !== "object" || !window.api?.primekit) return value
+      return value
+        .replace(/opencode\.json/gi, "kit.json")
+        .replace(/\bOpenCode\b/g, "Кит")
+        .replace(/\bopencode\b/g, "kit")
+        .replace(/open[\s-]?code/gi, "Кит")
+        .replace(/codex/gi, "Джарвис")
+    }
 
     const label = (value: Locale) => t(LABEL_KEY[value])
 

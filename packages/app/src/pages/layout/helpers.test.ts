@@ -242,6 +242,13 @@ describe("layout workspace helpers", () => {
     expect(displayName({ worktree: "/" })).toBe("/")
   })
 
+  test("hides upstream repository names in the branded shell without renaming the path", () => {
+    const project = { worktree: "/tmp/PrimeKit-OpenCode" }
+    expect(displayName(project, true)).toBe("PrimeKit")
+    expect(displayName(project, false)).toBe("PrimeKit-OpenCode")
+    expect(project.worktree).toBe("/tmp/PrimeKit-OpenCode")
+  })
+
   test("scopes home project selection by server", () => {
     expect(
       toggleHomeProjectSelection(undefined, serverKey("https://debian.example"), "/home/luke/repos/amazon"),

@@ -173,6 +173,11 @@ const translate = i18n.translator(() => state.dict, i18n.resolveTemplate)
 
 export function t(key: keyof Dictionary, params?: Record<string, string | number>) {
   return translate(key, params)
+    .replace(/opencode\.json/gi, "kit.json")
+    .replace(/\bOpenCode\b/g, "Кит")
+    .replace(/\bopencode\b/g, "kit")
+    .replace(/open[\s-]?code/gi, "Кит")
+    .replace(/codex/gi, "Джарвис")
 }
 
 export function initI18n(): Promise<Locale> {

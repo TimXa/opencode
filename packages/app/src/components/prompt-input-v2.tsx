@@ -52,6 +52,23 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
         variantControlVisible={false}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
+        labels={{
+          emptyResults: language.t("prompt.popover.emptyResults"),
+          commands: language.t("prompt.menu.commands"),
+          dropFiles: language.t("prompt.dropzone.label"),
+          removeAttachment: language.t("prompt.attachment.remove"),
+          prompt: language.t("command.prompt.mode.normal"),
+          placeholder: language.t("prompt.placeholder.simple"),
+          add: language.t("prompt.menu.addImagesAndFiles"),
+          files: language.t("prompt.menu.imagesAndFiles"),
+          context: language.t("prompt.menu.context"),
+          shell: language.t("prompt.menu.shellCommand"),
+          chooseAgent: language.t("command.agent.cycle"),
+          chooseModel: language.t("dialog.model.select.title"),
+          chooseModelVariant: language.t("command.model.variant.cycle"),
+          send: language.t("prompt.action.send"),
+          stop: language.t("prompt.action.stop"),
+        }}
         modelControl={
           <div class="flex min-w-0 items-center gap-1">
             <PromptInputV2ModelControl
@@ -453,18 +470,14 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   return controller as PromptInputV2ComposerController
 }
 
-function PromptInputV2ModelControl(props: {
-  loading: boolean
-  providerID?: string
-  modelName: string
-}) {
+function PromptInputV2ModelControl(props: { loading: boolean; providerID?: string; modelName: string }) {
   return (
     <Show when={!props.loading}>
       <div class="h-7 min-w-0 max-w-[220px] px-2 flex items-center gap-1.5 text-13-regular text-text-base">
-      <Show when={props.providerID}>
+        <Show when={props.providerID}>
           <Mark class="size-4 shrink-0 opacity-60" />
-      </Show>
-      <span class="truncate leading-4">{props.modelName}</span>
+        </Show>
+        <span class="truncate leading-4">{props.modelName}</span>
       </div>
     </Show>
   )

@@ -127,7 +127,7 @@ export const dict = {
   "ui.tool.grep": "Grep",
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "Веб-поиск",
-  "ui.tool.shell": "Оболочка",
+  "ui.tool.shell": "Команда",
   "ui.tool.patch": "Патч",
   "ui.tool.todos": "Задачи",
   "ui.tool.todos.read": "Читать задачи",

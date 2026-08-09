@@ -43,6 +43,23 @@ export type PromptInputV2Props = {
   variantControlVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
+  labels?: {
+    emptyResults: string
+    commands: string
+    dropFiles: string
+    removeAttachment: string
+    prompt: string
+    placeholder: string
+    add: string
+    files: string
+    context: string
+    shell: string
+    chooseAgent: string
+    chooseModel: string
+    chooseModelVariant: string
+    send: string
+    stop: string
+  }
 }
 
 export function PromptInputV2(props: PromptInputV2Props) {
@@ -87,14 +104,14 @@ export function PromptInputV2(props: PromptInputV2Props) {
       />
       <Show when={state.popover.type !== "closed"}>
         <PromptInputV2Popover
-          emptyLabel="No matching items"
+          emptyLabel={props.labels?.emptyResults ?? "No matching items"}
           items={props.controller.suggestions()}
           activeID={state.popover.type === "closed" ? undefined : state.popover.activeID}
           search={
             state.popover.type === "command-menu"
               ? {
                   value: state.popover.query,
-                  label: "Commands",
+                  label: props.labels?.commands ?? "Commands",
                   placeholder: "/",
                   onValueChange: props.controller.setQuery,
                   onKeyDown: props.controller.onKeyDown,
@@ -124,7 +141,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
       >
         <Show when={state.drag === "active"}>
           <div class="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-xl bg-v2-background-bg-base/90 text-v2-text-text-base">
-            Drop files to attach
+            {props.labels?.dropFiles ?? "Drop files to attach"}
           </div>
         </Show>
 
@@ -133,7 +150,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
             attachments={props.controller.attachments()}
             comments={props.controller.comments()}
             activeCommentID={state.activeContextID}
-            removeLabel="Remove attachment"
+            removeLabel={props.labels?.removeAttachment ?? "Remove attachment"}
             onAttachmentClick={props.controller.openAttachment}
             onAttachmentRemove={(attachment) => props.controller.removeAttachment(attachment.id)}
             onCommentClick={(comment) => props.controller.toggleContext(comment.key)}
@@ -151,7 +168,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
             data-component="prompt-input"
             role="textbox"
             aria-multiline="true"
-            aria-label="Prompt"
+            aria-label={props.labels?.prompt ?? "Prompt"}
             contenteditable={!props.disabled && !props.readOnly}
             autocapitalize={state.mode === "normal" ? "sentences" : "off"}
             autocorrect={state.mode === "normal" ? "on" : "off"}
@@ -186,6 +203,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
               classList={{ "font-mono!": state.mode === "shell" }}
             >
               {view.placeholder?.() ??
+                props.labels?.placeholder ??
                 (state.mode === "shell" ? "Enter shell command..." : "Ask anything, / for commands, @ for context...")}
             </div>
           </Show>
@@ -200,13 +218,13 @@ export function PromptInputV2(props: PromptInputV2Props) {
           >
             <PromptInputV2AddMenu
               disabled={state.mode === "shell"}
-              title="Add images and files"
+              title={props.labels?.add ?? "Add images and files"}
               keybind={props.attachKeybind ?? ["Mod", "U"]}
-              attachLabel="Images and files"
+              attachLabel={props.labels?.files ?? "Images and files"}
               attachShortcut={props.attachShortcut ?? "Mod+U"}
-              commandsLabel="Commands"
-              contextLabel="Context"
-              shellLabel="Shell command"
+              commandsLabel={props.labels?.commands ?? "Commands"}
+              contextLabel={props.labels?.context ?? "Context"}
+              shellLabel={props.labels?.shell ?? "Shell command"}
               onAttach={props.controller.attach}
               onCommands={props.controller.openCommands}
               onContext={props.controller.openContext}
@@ -214,7 +232,11 @@ export function PromptInputV2(props: PromptInputV2Props) {
             />
             <Show when={view.agent}>
               {(control) => (
-                <PromptInputV2ConfiguredSelect title="Choose agent" keybind={["Mod", "."]} control={control()} />
+                <PromptInputV2ConfiguredSelect
+                  title={props.labels?.chooseAgent ?? "Choose agent"}
+                  keybind={["Mod", "."]}
+                  control={control()}
+                />
               )}
             </Show>
             <Show
@@ -223,7 +245,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
                 <Show when={view.model}>
                   {(control) => (
                     <PromptInputV2ConfiguredSelect
-                      title="Choose model"
+                      title={props.labels?.chooseModel ?? "Choose model"}
                       keybind={["Mod", "M"]}
                       control={control()}
                       model
@@ -238,7 +260,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
               {(control) => (
                 <Show when={control().options().length > 1}>
                   <PromptInputV2ConfiguredSelect
-                    title="Choose model variant"
+                    title={props.labels?.chooseModelVariant ?? "Choose model variant"}
                     keybind={["Shift", "Mod", "D"]}
                     control={control()}
                   />
@@ -250,8 +272,8 @@ export function PromptInputV2(props: PromptInputV2Props) {
             mode={state.mode}
             stopping={view.submit.stopping()}
             disabled={!props.controller.canSubmit()}
-            sendLabel="Send"
-            stopLabel="Stop"
+            sendLabel={props.labels?.send ?? "Send"}
+            stopLabel={props.labels?.stop ?? "Stop"}
             onSubmit={props.controller.submit}
             onStop={props.controller.stop}
           />
