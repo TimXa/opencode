@@ -16,7 +16,10 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = false
+  // The controller downloads only after validating the PrimeKit release
+  // metadata. Once ready, install on the next normal quit without interrupting
+  // an active chat or tool run.
+  autoUpdater.autoInstallOnAppQuit = true
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
@@ -63,21 +66,29 @@ export async function showUpdaterDialog(controller: ReturnType<typeof setupAutoU
   const state = await controller.check()
   if (state.status === "error") {
     if (!alertOnFail) return
-    await dialog.showMessageBox({ type: "error", message: "Update check failed.", title: "Update Error" })
+    await dialog.showMessageBox({
+      type: "error",
+      message: "Не удалось проверить обновления.",
+      title: "Обновление Кита",
+    })
     return
   }
   if (state.status === "up-to-date") {
     if (!alertOnFail) return
-    await dialog.showMessageBox({ type: "info", message: "You're up to date.", title: "No Updates" })
+    await dialog.showMessageBox({
+      type: "info",
+      message: "У вас уже установлена последняя версия Кита.",
+      title: "Обновлений нет",
+    })
     return
   }
   if (state.status !== "ready") return
 
   const response = await dialog.showMessageBox({
     type: "info",
-    message: `Update ${state.version} downloaded. Restart now?`,
-    title: "Update Ready",
-    buttons: ["Restart", "Later"],
+    message: `Кит ${state.version} загружен. Перезапустить и установить сейчас?`,
+    title: "Обновление готово",
+    buttons: ["Перезапустить", "Позже"],
     defaultId: 0,
     cancelId: 1,
   })

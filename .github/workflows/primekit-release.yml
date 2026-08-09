@@ -256,6 +256,11 @@ jobs:
           SOURCE=$(find "$MOUNT" -maxdepth 1 -name '*.app' -type d -print -quit)
           test -n "$SOURCE" || { echo 'Application missing from DMG' >&2; exit 1; }
           ditto "$SOURCE" "$DEST"
+          UPDATE_CONFIG="$DEST/Contents/Resources/app-update.yml"
+          test -s "$UPDATE_CONFIG" || { echo 'PrimeKit update feed is missing' >&2; exit 1; }
+          grep -q '^provider: github$' "$UPDATE_CONFIG"
+          grep -q '^owner: TimXa$' "$UPDATE_CONFIG"
+          grep -q '^repo: opencode$' "$UPDATE_CONFIG"
           hdiutil detach "$MOUNT"
           trap - EXIT
           codesign --verify --deep --strict --verbose=2 "$DEST"
