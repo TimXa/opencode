@@ -2264,7 +2264,11 @@ export default function LegacyLayout(props: ParentProps) {
   const primeKitProfileImage = createMemo(() => {
     const value = accountAvatar()
     if (!value) return
-    if (/^https?:\/\//.test(value)) return value
+    if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:") || value.startsWith("blob:")) return value
+    if (/^[\w.-]+\.(?:jpe?g|png|webp|gif|svg)$/i.test(value)) {
+      return `https://primekit-job.ru/api/profile-images/${value}`
+    }
+    if (value.startsWith("/profile-images/")) return `https://primekit-job.ru/api${value}`
     return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
   })
   const personalProject = createMemo(() => projects().find((project) => project.id === "primekit-personal"))
@@ -2461,16 +2465,24 @@ export default function LegacyLayout(props: ParentProps) {
           class="flex h-12 w-full min-w-0 items-center gap-3 rounded-xl px-2 text-left transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 motion-reduce:transition-none"
           onClick={openSettings}
         >
-          <Show
-            when={primeKitProfileImage()}
-            fallback={
-              <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
-                {accountName().slice(0, 2).toUpperCase()}
-              </span>
-            }
-          >
-            {(src) => <img src={src()} alt="" class="size-7 shrink-0 rounded-full object-cover" />}
-          </Show>
+          <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
+            <Show when={primeKitProfileImage()} fallback={accountName().slice(0, 2).toUpperCase()}>
+              {(src) => (
+                <img
+                  src={src()}
+                  alt=""
+                  class="size-full object-cover"
+                  onError={(event) => {
+                    event.currentTarget.hidden = true
+                    event.currentTarget.parentElement?.setAttribute(
+                      "data-avatar-fallback",
+                      accountName().slice(0, 2).toUpperCase(),
+                    )
+                  }}
+                />
+              )}
+            </Show>
+          </span>
           <span class="min-w-0 flex-1 truncate text-[14px] font-medium text-white/82">{accountName()}</span>
           <IconV2 name="settings-gear" size="small" class="text-white/38" />
         </button>

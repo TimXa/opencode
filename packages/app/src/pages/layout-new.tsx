@@ -28,7 +28,7 @@ export default function NewLayout(props: ParentProps) {
   const serverSDK = useServerSDK()
   const tabs = useTabs()
   const server = useServer()
-  const showSettings = useSettingsDialog(window.api?.primekit ? "primekit" : "general")
+  const showSettings = useSettingsDialog("general")
   setNavigate(navigate)
   const [state, setState] = createStore({
     debugTools: true,
@@ -100,7 +100,11 @@ export default function NewLayout(props: ParentProps) {
   const accountAvatar = createMemo(() => {
     const value = account()?.user?.photo_url?.trim()
     if (!value) return
-    if (/^https?:\/\//.test(value)) return value
+    if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:") || value.startsWith("blob:")) return value
+    if (/^[\w.-]+\.(?:jpe?g|png|webp|gif|svg)$/i.test(value)) {
+      return `https://primekit-job.ru/api/profile-images/${value}`
+    }
+    if (value.startsWith("/profile-images/")) return `https://primekit-job.ru/api${value}`
     return `https://primekit-job.ru${value.startsWith("/") ? value : `/${value}`}`
   })
   const isPinned = (session: unknown) => Boolean((session as { isPinned?: boolean }).isPinned)
@@ -447,7 +451,20 @@ export default function NewLayout(props: ParentProps) {
             >
               <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e482b4] text-[11px] font-semibold text-white">
                 <Show when={accountAvatar()} fallback={accountName().slice(0, 2).toUpperCase()}>
-                  {(url) => <img src={url()} alt="" class="size-full object-cover" />}
+                  {(url) => (
+                    <img
+                      src={url()}
+                      alt=""
+                      class="size-full object-cover"
+                      onError={(event) => {
+                        event.currentTarget.hidden = true
+                        event.currentTarget.parentElement?.setAttribute(
+                          "data-avatar-fallback",
+                          accountName().slice(0, 2).toUpperCase(),
+                        )
+                      }}
+                    />
+                  )}
                 </Show>
               </span>
               <span class="min-w-0 flex-1 truncate text-[14px] font-medium text-white/82">{accountName()}</span>

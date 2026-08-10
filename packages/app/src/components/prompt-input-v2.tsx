@@ -59,7 +59,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
         controller={props.controller}
         borderUnderlay={props.borderUnderlay}
         class={props.class}
-        variantControlVisible={false}
+        variantControlVisible={Boolean(window.api?.primekit)}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
         labels={{
@@ -76,7 +76,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
           shell: language.t("prompt.menu.shellCommand"),
           chooseAgent: language.t("command.agent.cycle"),
           chooseModel: language.t("dialog.model.select.title"),
-          chooseModelVariant: language.t("command.model.variant.cycle"),
+          chooseModelVariant: "Режимы Кита",
           send: language.t("prompt.action.send"),
           stop: language.t("prompt.action.stop"),
         }}
@@ -100,10 +100,7 @@ function PrimeKitResources(props: { files: FilePart[] }) {
   return (
     <DialogV2 size="large">
       <DialogHeader closeLabel="Закрыть">
-        <DialogTitleGroup
-          title="Ресурсы чата"
-          description="Файлы пользователя и материалы, подготовленные Китом"
-        />
+        <DialogTitleGroup title="Ресурсы чата" description="Файлы пользователя и материалы, подготовленные Китом" />
       </DialogHeader>
       <DialogBody class="min-h-0 overflow-y-auto px-4 pb-4">
         <Show
@@ -166,7 +163,11 @@ function PrimeKitVoiceInput(props: { controller: PromptInputV2ComposerController
     const update = (transcript: string) => {
       const text = `${prefix}${transcript}`.trimStart()
       const images = props.controller.parts().filter((part) => part.type === "image")
-      props.controller.onInput(text, [{ type: "text", content: text, start: 0, end: text.length }, ...images], text.length)
+      props.controller.onInput(
+        text,
+        [{ type: "text", content: text, start: 0, end: text.length }, ...images],
+        text.length,
+      )
     }
     speech = new PrimeKitSpeechStream({
       onPartial: update,
@@ -225,7 +226,9 @@ function PrimeKitVoiceInput(props: { controller: PromptInputV2ComposerController
         disabled={voice.connecting}
         class="rounded-full transition-transform duration-150 ease-out active:scale-[.96] motion-reduce:transition-none"
         classList={{ "text-v2-text-text-base bg-v2-background-bg-hover": voice.active || voice.connecting }}
-        aria-label={voice.active ? "Остановить диктовку" : voice.connecting ? "Обработка диктовки" : "Диктовать сообщение"}
+        aria-label={
+          voice.active ? "Остановить диктовку" : voice.connecting ? "Обработка диктовки" : "Диктовать сообщение"
+        }
         aria-pressed={voice.active}
         onClick={() => (voice.active ? stop() : void start())}
         icon={
@@ -482,7 +485,17 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       keybind: command.keybindParts(item.id),
     })),
   )
-  const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
+  const variants = createMemo(() =>
+    window.api?.primekit
+      ? props.controls.model.selection.variant.list()
+      : ["default", ...props.controls.model.selection.variant.list()],
+  )
+  createEffect(() => {
+    if (!window.api?.primekit) return
+    if (props.controls.model.selection.variant.current()) return
+    if (!props.controls.model.selection.variant.list().includes("high")) return
+    props.controls.model.selection.variant.set("high")
+  })
   const controller = createPromptInputV2Controller({
     store: () => prompt.capture().store,
     state: interaction,
@@ -558,7 +571,21 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
           : undefined
       },
       variant: {
-        options: () => variants().map((value) => ({ id: value, label: value })),
+        options: () =>
+          variants().map((value) => ({
+            id: value,
+            label: window.api?.primekit
+              ? ({
+                  default: "Глубоко",
+                  low: "Быстро",
+                  medium: "Рабочий",
+                  high: "Глубоко",
+                  xhigh: "Экспертный",
+                  max: "Максимум",
+                  ultra: "Ультра",
+                }[value] ?? value)
+              : value,
+          })),
         current: () => props.controls.model.selection.variant.current() ?? "default",
         onSelect: (value) => props.controls.model.selection.variant.set(value === "default" ? undefined : value),
         keybind: () => command.keybindParts("model.variant.cycle"),

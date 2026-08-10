@@ -625,7 +625,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0px;
+  gap: 6px;
   cursor: default;
 
   [data-slot="context-tool-group-title"] {

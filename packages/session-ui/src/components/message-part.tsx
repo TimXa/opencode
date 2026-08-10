@@ -615,7 +615,20 @@ function taskSession(
     .sort((a, b) => (b.time.created ?? 0) - (a.time.created ?? 0))[0]?.id
 }
 
-const CONTEXT_GROUP_TOOLS = new Set(["read", "glob", "grep", "list"])
+const ACTIVITY_GROUP_TOOLS = new Set([
+  "read",
+  "glob",
+  "grep",
+  "list",
+  "websearch",
+  "webfetch",
+  "edit",
+  "write",
+  "patch",
+  "apply_patch",
+  "bash",
+  "shell",
+])
 const HIDDEN_TOOLS = new Set(["todowrite"])
 
 function list<T>(value: T[] | undefined | null, fallback: T[]) {
@@ -845,7 +858,7 @@ export function AssistantParts(props: {
 }
 
 function isContextGroupTool(part: PartType): part is ToolPart {
-  return part.type === "tool" && CONTEXT_GROUP_TOOLS.has(part.tool)
+  return part.type === "tool" && ACTIVITY_GROUP_TOOLS.has(part.tool)
 }
 
 function contextToolDetail(part: ToolPart): string | undefined {
@@ -919,7 +932,36 @@ function contextToolSummary(parts: ToolPart[]) {
   const read = parts.filter((part) => part.tool === "read").length
   const search = parts.filter((part) => part.tool === "glob" || part.tool === "grep").length
   const list = parts.filter((part) => part.tool === "list").length
-  return { read, search, list }
+  const web = parts.filter((part) => part.tool === "websearch" || part.tool === "webfetch").length
+  const edit = parts.filter((part) => ["edit", "write", "patch", "apply_patch"].includes(part.tool)).length
+  const command = parts.filter((part) => part.tool === "bash" || part.tool === "shell").length
+  return { read, search, list, web, edit, command }
+}
+
+function pluralRu(value: number, one: string, few: string, many: string) {
+  const mod100 = value % 100
+  const mod10 = value % 10
+  if (mod100 >= 11 && mod100 <= 14) return many
+  if (mod10 === 1) return one
+  if (mod10 >= 2 && mod10 <= 4) return few
+  return many
+}
+
+function russianActivitySummary(summary: ReturnType<typeof contextToolSummary>) {
+  const items: string[] = []
+  const project = summary.read + summary.search + summary.list
+  if (project) items.push(`${project} ${pluralRu(project, "раз", "раза", "раз")} изучил проект`)
+  if (summary.web) {
+    items.push(`${summary.web} ${pluralRu(summary.web, "раз", "раза", "раз")} изучил интернет`)
+  }
+  if (summary.edit) {
+    items.push(`${summary.edit} ${pluralRu(summary.edit, "раз", "раза", "раз")} отредактировал файл`)
+  }
+  if (summary.command) {
+    items.push(`${summary.command} ${pluralRu(summary.command, "раз", "раза", "раз")} выполнил команду`)
+  }
+  if (items.length < 2) return items[0] ?? ""
+  return `${items.slice(0, -1).join(", ")} и ${items.at(-1)}`
 }
 
 function ExaOutput(props: { output?: string }) {
@@ -1090,6 +1132,7 @@ export function ContextToolGroup(props: {
     >
       <Collapsible.Trigger>
         <div data-component="context-tool-group-trigger">
+          <Icon name="circle-check" size="small" class="shrink-0 text-icon-weak" />
           <span
             data-slot="context-tool-group-title"
             class="min-w-0 flex items-center gap-2 text-14-medium text-text-strong"
@@ -1097,8 +1140,8 @@ export function ContextToolGroup(props: {
             <span data-slot="context-tool-group-label" class="shrink-0">
               <ToolStatusTitle
                 active={pending()}
-                activeText={i18n.t("ui.sessionTurn.status.gatheringContext")}
-                doneText={i18n.t("ui.sessionTurn.status.gatheredContext")}
+                activeText={i18n.t("ui.sessionTurn.status.performingActions")}
+                doneText={i18n.t("ui.sessionTurn.status.performedActions")}
                 split={false}
               />
             </span>
@@ -1106,29 +1149,54 @@ export function ContextToolGroup(props: {
               data-slot="context-tool-group-summary"
               class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal text-text-base"
             >
-              <AnimatedCountList
-                items={[
-                  {
-                    key: "read",
-                    count: summary().read,
-                    one: i18n.t("ui.messagePart.context.read.one"),
-                    other: i18n.t("ui.messagePart.context.read.other"),
-                  },
-                  {
-                    key: "search",
-                    count: summary().search,
-                    one: i18n.t("ui.messagePart.context.search.one"),
-                    other: i18n.t("ui.messagePart.context.search.other"),
-                  },
-                  {
-                    key: "list",
-                    count: summary().list,
-                    one: i18n.t("ui.messagePart.context.list.one"),
-                    other: i18n.t("ui.messagePart.context.list.other"),
-                  },
-                ]}
-                fallback=""
-              />
+              <Show
+                when={i18n.locale().toLowerCase().startsWith("ru")}
+                fallback={
+                  <AnimatedCountList
+                    items={[
+                      {
+                        key: "read",
+                        count: summary().read,
+                        one: i18n.t("ui.messagePart.context.read.one"),
+                        other: i18n.t("ui.messagePart.context.read.other"),
+                      },
+                      {
+                        key: "search",
+                        count: summary().search,
+                        one: i18n.t("ui.messagePart.context.search.one"),
+                        other: i18n.t("ui.messagePart.context.search.other"),
+                      },
+                      {
+                        key: "list",
+                        count: summary().list,
+                        one: i18n.t("ui.messagePart.context.list.one"),
+                        other: i18n.t("ui.messagePart.context.list.other"),
+                      },
+                      {
+                        key: "web",
+                        count: summary().web,
+                        one: i18n.t("ui.messagePart.activity.web.one"),
+                        other: i18n.t("ui.messagePart.activity.web.other"),
+                      },
+                      {
+                        key: "edit",
+                        count: summary().edit,
+                        one: i18n.t("ui.messagePart.activity.edit.one"),
+                        other: i18n.t("ui.messagePart.activity.edit.other"),
+                      },
+                      {
+                        key: "command",
+                        count: summary().command,
+                        one: i18n.t("ui.messagePart.activity.command.one"),
+                        other: i18n.t("ui.messagePart.activity.command.other"),
+                      },
+                    ]}
+                    fallback=""
+                  />
+                }
+              >
+                {russianActivitySummary(summary())}
+              </Show>
             </span>
           </span>
           <Collapsible.Arrow />

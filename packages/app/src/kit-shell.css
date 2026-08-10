@@ -135,6 +135,10 @@
   border-color: var(--kit-border) !important;
 }
 
+[data-kit-profile] [data-avatar-fallback]::after {
+  content: attr(data-avatar-fallback);
+}
+
 [data-kit-main] {
   background: var(--kit-bg) !important;
   border-color: var(--kit-border) !important;
@@ -172,7 +176,7 @@
 }
 
 [data-kit-shell] [data-component="session-prompt-dock"] {
-  background: var(--kit-bg) !important;
+  background: transparent !important;
   padding-bottom: 16px !important;
 }
 
@@ -207,6 +211,23 @@
   transition-property: color, background-color, transform;
   transition-duration: 120ms;
   transition-timing-function: ease-out;
+}
+
+[data-kit-shell] [data-action="prompt-submit"]:not(:disabled) {
+  color: oklch(0.99 0 0) !important;
+  background: var(--kit-accent-strong) !important;
+  background-image: none !important;
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.14),
+    0 2px 6px oklch(0 0 0 / 0.24) !important;
+}
+
+[data-kit-shell] [data-action="prompt-submit"]:not(:disabled):hover {
+  background: var(--kit-accent) !important;
+}
+
+[data-kit-shell] [data-action="prompt-submit"]:not(:disabled):active {
+  transform: scale(0.96);
 }
 
 [data-kit-shell] :is([data-action="prompt-attach"], [data-action="prompt-voice"]) {

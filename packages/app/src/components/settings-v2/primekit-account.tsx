@@ -56,17 +56,30 @@ export function SettingsPrimeKitAccount() {
       </div>
       <div class="settings-v2-tab-body">
         <SettingsListV2>
+          <SettingsRowV2
+            title="Модель Кита"
+            description="GPT-5.6 Sol используется и в Облаке, и в Джарвисе. Режим мышления выбирается в поле сообщения."
+          >
+            <span class="text-sm font-medium text-v2-text-text-base">GPT-5.6 Sol</span>
+          </SettingsRowV2>
           <Show
             when={account()?.signedIn}
             fallback={
-              <SettingsRowV2 title="Облако" description={authError() || (codeSent() ? "Введите код из письма" : "Войдите, чтобы видеть чаты с сайта") }>
+              <SettingsRowV2
+                title="Облако"
+                description={
+                  authError() || (codeSent() ? "Введите код из письма" : "Войдите, чтобы видеть чаты с сайта")
+                }
+              >
                 <div class="flex items-center gap-2">
                   <input
                     class="h-8 w-44 rounded-md border border-border-weak bg-background-base px-2 text-sm"
                     type={codeSent() ? "text" : "email"}
                     placeholder={codeSent() ? "Код" : "Email"}
                     value={codeSent() ? code() : email()}
-                    onInput={(event) => codeSent() ? setCode(event.currentTarget.value) : setEmail(event.currentTarget.value)}
+                    onInput={(event) =>
+                      codeSent() ? setCode(event.currentTarget.value) : setEmail(event.currentTarget.value)
+                    }
                   />
                   <ButtonV2 size="normal" variant="neutral" onClick={() => void signIn()}>
                     {codeSent() ? "Войти" : "Получить код"}
@@ -75,8 +88,13 @@ export function SettingsPrimeKitAccount() {
               </SettingsRowV2>
             }
           >
-            <SettingsRowV2 title={account()?.user?.display_name || "Кит"} description={account()?.user?.email || "Аккаунт подключён"}>
-              <ButtonV2 size="normal" variant="neutral" onClick={() => void logout()}>Выйти</ButtonV2>
+            <SettingsRowV2
+              title={account()?.user?.display_name || "Кит"}
+              description={account()?.user?.email || "Аккаунт подключён"}
+            >
+              <ButtonV2 size="normal" variant="neutral" onClick={() => void logout()}>
+                Выйти
+              </ButtonV2>
             </SettingsRowV2>
           </Show>
           <SettingsRowV2
