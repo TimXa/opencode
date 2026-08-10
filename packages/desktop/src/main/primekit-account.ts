@@ -17,6 +17,16 @@ export type PrimeKitUser = {
   photo_url?: string | null
 }
 
+export class PrimeKitRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = "PrimeKitRequestError"
+  }
+}
+
 function boundedSignal(signal?: AbortSignal | null) {
   return AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])])
 }
@@ -195,7 +205,7 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
     const headers = new Headers(init.headers)
     if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json")
     const response = await open(path, { ...init, headers })
-    if (!response.ok) throw new Error(await errorMessage(response))
+    if (!response.ok) throw new PrimeKitRequestError(await errorMessage(response), response.status)
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
   }
@@ -207,7 +217,7 @@ export function createPrimeKitAccount(baseURL = process.env.PRIMEKIT_ACCOUNT_API
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     })
-    if (!response.ok) throw new Error(await errorMessage(response))
+    if (!response.ok) throw new PrimeKitRequestError(await errorMessage(response), response.status)
     return (await response.json()) as T
   }
 

@@ -2,10 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { primeKitAccount } from "./primekit-account"
+import { PrimeKitRequestError, primeKitAccount } from "./primekit-account"
 import { publishPrimeKitSidebarEvent, type PrimeKitSidebarEvent } from "./primekit-sidebar-events"
 import { assignPrimeKitChatFiles, type PrimeKitChatFile } from "./primekit-chat-files"
 import { jarvisReasoningEffort, normalizePrimeKitReasoningEffort, primeKitReasoningEfforts } from "./primekit-reasoning"
+import { openPrimeKitTaskStream } from "./primekit-task-stream"
 import pkg from "../../package.json"
 
 type LocalServer = { url: string; username: string; password: string }
@@ -550,9 +551,10 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
       }
     }
     try {
-      const response = await primeKitAccount.open(chatPath(location, `/tasks/${taskID}/stream?after=0`), {
-        headers: { accept: "text/event-stream" },
-      })
+      const response = await openPrimeKitTaskStream(
+        primeKitAccount,
+        chatPath(location, `/tasks/${taskID}/stream?after=0`),
+      )
       if (!response.ok || !response.body) throw new Error(`Поток Кита недоступен (${response.status})`)
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -943,7 +945,13 @@ export async function startPrimeKitBridge(sidecar: LocalServer, logger: Logger) 
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
       logger.error("PrimeKit bridge request failed", { url: request.url, message })
-      return json(response, message.includes("Войдите") || message.includes("Сессия") ? 401 : 502, { error: message })
+      const status =
+        cause instanceof PrimeKitRequestError
+          ? cause.status
+          : message.includes("Войдите") || message.includes("Сессия")
+            ? 401
+            : 502
+      return json(response, status, { error: message })
     }
   })
 
